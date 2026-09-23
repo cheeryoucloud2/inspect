@@ -375,6 +375,8 @@ function gateView(){
     '<label class="field"><span>密碼</span><input id="gate-pass" type="password" autocomplete="current-password" required></label>'+
     '<button class="btn primary" type="submit"'+(S.loggingIn?" disabled":"")+'>'+(S.loggingIn?"登入中…":"登入")+'</button></form>';
 }
+/** 密碼先在這裡做 SHA-256 才送出（連線中不出現明碼） */
+async function sha256hex(t){var b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));return Array.from(new Uint8Array(b)).map(function(x){return ("0"+x.toString(16)).slice(-2)}).join("")}
 /** 登出：清掉憑證與這台裝置上的資料快取 */
 function logout(expired){
   S.token="";lsSet("token","");try{localStorage.removeItem(LS+"cache")}catch(e){}
@@ -627,7 +629,7 @@ app.addEventListener("submit",async function(e){
   if(f.id==="gate"){
     var u=document.getElementById("gate-user").value.trim(),pw=document.getElementById("gate-pass").value;
     S.loggingIn=true;render();
-    try{var r=await post({action:"login",user:u,pass:pw},{tmos:[20000,30000]});S.token=r.token;lsSet("token",r.token);S.needLogin=false;S.loggingIn=false;render();refresh()}
+    try{var r=await post({action:"signin",user:u,h:await sha256hex(pw)},{tmos:[20000,30000]});S.token=r.token;lsSet("token",r.token);S.needLogin=false;S.loggingIn=false;render();refresh()}
     catch(err){S.loggingIn=false;render();document.getElementById("gate-user").value=u;toast(err.message)}
     return;
   }
