@@ -210,12 +210,12 @@ var APP_VERSION = "2026-09-23-01";
 
 var LS = "insp_";
 var S = {
-  meetings:[], defects:[], people:[], cats:[], ver:null, loaded:false, offline:false,
+  meetings:[], defects:[], people:[], cats:[], sites:[], ver:null, loaded:false, offline:false,
   view:"home", mid:null, tab:"shoot", filter:"all",
-  me: lsGet("me") || "", code: lsGet("code") || "", lastLoc: "",
+  me: lsGet("me") || "", token: lsGet("token") || "", lastLoc: "",
   local: new Map(),      // fileId 或 暫存鍵 → 本機 dataURL（剛上傳的照片先用本機的，不等雲端縮圖）
   queue: [], active: 0, inflight: 0, dirty:false,
-  confirmDel:null, lightbox:null, showNew:false, editMeta:false, needCode:false, saved:null, exporting:false,
+  confirmDel:null, lightbox:null, showNew:false, editMeta:false, needLogin:!lsGet("token"), loggingIn:false, saved:null, exporting:false,
 };
 var app = document.getElementById("app");
 
@@ -254,7 +254,7 @@ function slowTip(on){
 }
 function post(body,opt){
   opt=opt||{};var tmos=opt.tmos||[15000,25000,40000];
-  body.code=S.code;
+  body.token=S.token;
   function once(i){
     var ac=typeof AbortController!=="undefined"?new AbortController():null,slowT=setTimeout(function(){slowTip(true);slowT=null},5000),timer;
     var timeout=new Promise(function(_,rej){timer=setTimeout(function(){if(ac)try{ac.abort()}catch(e){}rej(new Error("timeout"))},tmos[i])});
@@ -268,7 +268,7 @@ function post(body,opt){
       });
   }
   return once(0).then(function(o){
-    if(o.err==="need_code"){S.needCode=true;render();throw new Error("需要通行碼")}
+    if(o.err==="need_login"){logout(true);throw new Error("請重新登入")}
     if(!o.ok)throw new Error(o.msg||"發生錯誤");
     return o;
   });
@@ -276,24 +276,24 @@ function post(body,opt){
 
 /* ---------- 資料同步 ---------- */
 function saveCache(){
-  try{localStorage.setItem(LS+"cache",JSON.stringify({ver:S.ver,meetings:S.meetings,people:S.people,cats:S.cats,
+  try{localStorage.setItem(LS+"cache",JSON.stringify({ver:S.ver,meetings:S.meetings,people:S.people,cats:S.cats,sites:S.sites,
     defects:S.defects.filter(function(d){return !d._pending}).map(function(d){var o=Object.assign({},d);delete o._fail;return o})}))}catch(e){}
 }
 function loadCache(){
-  try{var c=JSON.parse(localStorage.getItem(LS+"cache")||"null");if(c){S.meetings=c.meetings||[];S.defects=c.defects||[];S.people=c.people||[];S.cats=c.cats||[];S.ver=c.ver;S.loaded=true}}catch(e){}
+  try{var c=JSON.parse(localStorage.getItem(LS+"cache")||"null");if(c){S.meetings=c.meetings||[];S.defects=c.defects||[];S.people=c.people||[];S.cats=c.cats||[];S.sites=c.sites||[];S.ver=c.ver;S.loaded=true}}catch(e){}
 }
 function applyServer(r){
   var pend=S.defects.filter(function(d){return d._pending});
   var ids={};r.defects.forEach(function(d){ids[d.id]=1});
   S.meetings=r.meetings;S.defects=r.defects.concat(pend.filter(function(d){return !ids[d.id]}));
-  S.people=r.people||[];S.cats=r.cats||[];S.ver=r.ver;S.loaded=true;S.offline=false;
+  S.people=r.people||[];S.cats=r.cats||[];S.sites=r.sites||[];S.ver=r.ver;S.loaded=true;S.offline=false;
   saveCache();schedule();
 }
 function refresh(){
-  return post({action:"bootstrap"}).then(applyServer).catch(function(e){if(!S.needCode){S.offline=true;toast("讀取失敗："+e.message);schedule()}});
+  return post({action:"bootstrap"}).then(applyServer).catch(function(e){if(!S.needLogin){S.offline=true;toast("讀取失敗："+e.message);schedule()}});
 }
 function poll(){
-  if(document.hidden||S.inflight||S.active||S.needCode||!S.loaded)return;
+  if(document.hidden||S.inflight||S.active||S.needLogin||!S.loaded)return;
   post({action:"ver"},{tmos:[10000]}).then(function(r){if(r.ver!==S.ver&&!S.inflight&&!S.active)return refresh()}).catch(function(){});
 }
 setInterval(poll,30000);
@@ -334,7 +334,7 @@ app.addEventListener("focusout",function(){setTimeout(function(){if(S.dirty){S.d
 function render(){
   var h=topbar();
   if(/請貼上/.test(GAS_URL)) h+='<div class="notice">尚未設定後端網址：請在 index.html 的 <code>GAS_URL</code> 貼上 Apps Script 部署後的 /exec 網址。</div>';
-  else if(S.needCode) h+=gateView();
+  else if(S.needLogin) h+=gateView();
   else if(S.view==="meeting"&&meeting(S.mid)) h+=meetingView(meeting(S.mid));
   else h+=homeView();
   if(S.lightbox) h+='<div class="lightbox" data-act="closebox"><img src="'+esc(S.lightbox)+'" alt="放大照片" referrerpolicy="no-referrer"></div>';
@@ -345,7 +345,7 @@ function topbar(){
   var sync=S.offline?"離線（顯示上次資料）":S.active?"上傳中 "+(S.active+S.queue.length)+" 張":"";
   return '<header class="bar"><button class="brand" data-act="home"><i aria-hidden="true"></i>工務會議　缺失巡查</button>'+
     (sync?'<span class="sync">'+esc(sync)+'</span>':"")+
-    '<label class="me">我的名字 <input id="me" list="dl-people" value="'+esc(S.me)+'" placeholder="選擇或輸入" autocomplete="name"></label></header>';
+    (S.needLogin?"":'<label class="me">我的名字 <input id="me" list="dl-people" value="'+esc(S.me)+'" placeholder="選擇或輸入" autocomplete="name"></label><button class="link" style="color:inherit;opacity:.8;font-size:13px" data-act="logout">登出</button>')+'</header>';
 }
 function fillDatalists(){
   function opts(list){return list.filter(function(x,i,a){return x&&a.indexOf(x)===i}).map(function(s){return '<option value="'+esc(s)+'">'}).join("")}
@@ -354,8 +354,16 @@ function fillDatalists(){
   document.getElementById("dl-loc").innerHTML=S.mid?opts(defectsOf(S.mid).map(function(d){return d.location})):"";
 }
 function gateView(){
-  return '<form class="gate" id="gate"><h2>請輸入通行碼</h2><span class="sub">通行碼請向工務部索取，輸入一次後這台手機會記住。</span>'+
-    '<label class="field"><span>通行碼</span><input id="gate-code" autocomplete="off" required></label><button class="btn primary" type="submit">進入</button></form>';
+  return '<form class="gate" id="gate"><h2>登入</h2><span class="sub">登入一次，這台裝置會記住 30 天。</span>'+
+    '<label class="field"><span>帳號</span><input id="gate-user" autocomplete="username" inputmode="numeric" required></label>'+
+    '<label class="field"><span>密碼</span><input id="gate-pass" type="password" autocomplete="current-password" required></label>'+
+    '<button class="btn primary" type="submit"'+(S.loggingIn?" disabled":"")+'>'+(S.loggingIn?"登入中…":"登入")+'</button></form>';
+}
+/** 登出：清掉憑證與這台裝置上的資料快取 */
+function logout(expired){
+  S.token="";lsSet("token","");try{localStorage.removeItem(LS+"cache")}catch(e){}
+  S.meetings=[];S.defects=[];S.loaded=false;S.needLogin=true;S.view="home";S.mid=null;render();
+  if(expired)toast("登入已過期，請重新登入");
 }
 
 function homeView(){
@@ -373,11 +381,19 @@ function homeView(){
     (S.showNew?newForm():"")+
     (!S.loaded?'<div class="empty">載入中…</div>':ms.length?'<div class="mlist" role="list">'+rows+'</div>':'<div class="empty"><b>還沒有任何工務會議</b><span>按「新增工務會議」開始。</span></div>');
 }
+function siteField(pre,cur){
+  var sites=S.sites||[],known=sites.some(function(x){return x.site===cur}),manual=!sites.length||(cur&&!known);
+  var sel=sites.length?'<select id="'+pre+'-sel" data-sitesel="'+pre+'"><option value="">— 選擇工地 —</option>'+
+    sites.map(function(x,i){return '<option value="'+i+'"'+(x.site===cur?" selected":"")+'>'+esc(x.site)+'</option>'}).join("")+
+    '<option value="other"'+(cur&&!known?" selected":"")+'>其他（手動輸入）</option></select>':"";
+  return '<label class="field"><span>工地</span>'+sel+'<input id="'+pre+'-site" list="dl-sites" value="'+esc(cur||"")+'" placeholder="例：先麥工地"'+(manual?"":" hidden")+'></label>';   // 不用 required：藏起來的必填欄位會讓瀏覽器擋送出卻不提示
+}
 function newForm(){
   return '<form class="newform" id="newform"><label class="field"><span>會議日期</span><input type="date" id="nf-date" value="'+todayIso()+'" required></label>'+
-    '<label class="field"><span>工地</span><input id="nf-site" list="dl-sites" placeholder="例：先麥工地" required></label>'+
+    siteField("nf","")+
     '<label class="field wide"><span>工程名稱</span><input id="nf-proj" placeholder="例：先麥食品南投廠辦新建工程" required></label>'+
-    '<button class="btn primary" type="submit">建立</button></form>';
+    '<button class="btn primary" type="submit">建立</button>'+
+    (S.sites.length?'':'<span class="sub" style="grid-column:1/-1">提示：在試算表〈工地資料〉填入「工地別、工程名稱」，這裡就能直接選工地並自動帶入工程名稱。</span>')+'</form>';
 }
 
 function meetingView(m){
@@ -395,7 +411,7 @@ function meetingView(m){
 }
 function metaForm(m){
   return '<form class="meta-edit" id="metaform"><label class="field"><span>會議日期</span><input type="date" id="mf-date" value="'+esc(m.date)+'" required></label>'+
-    '<label class="field"><span>工地</span><input id="mf-site" list="dl-sites" value="'+esc(m.site)+'" required></label>'+
+    siteField("mf",m.site)+
     '<label class="field"><span>工程名稱</span><input id="mf-proj" value="'+esc(m.project)+'" required></label>'+
     '<div class="acts"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="mf-skip" '+(m.skip?"checked":"")+'> 本次不列缺失（專案管理）</label>'+
     '<span style="flex:1"></span><button class="btn ghost" type="button" data-act="edit-meta">取消</button><button class="btn primary" type="submit">儲存</button></div></form>';
@@ -538,9 +554,10 @@ async function uploadSlot(id,key,file){
 app.addEventListener("click",async function(e){
   var t=e.target.closest("[data-act]");if(!t)return;
   var a=t.dataset.act,id=t.dataset.id;
+  if(a==="logout"){logout();return}
   if(a==="home"){S.view="home";S.mid=null;S.editMeta=false;render();scrollTo(0,0)}
   else if(a==="open"){S.view="meeting";S.mid=id;S.tab=selectedOf(id).length?"fix":"shoot";S.filter="all";S.editMeta=false;render();scrollTo(0,0)}
-  else if(a==="toggle-new"){S.showNew=!S.showNew;render();if(S.showNew)document.getElementById("nf-site").focus()}
+  else if(a==="toggle-new"){S.showNew=!S.showNew;render();if(S.showNew)(document.getElementById("nf-sel")||document.getElementById("nf-site")).focus()}
   else if(a==="edit-meta"){S.editMeta=!S.editMeta;render()}
   else if(a==="tab"){S.tab=t.dataset.tab;S.confirmDel=null;render()}
   else if(a==="filter"){S.filter=t.dataset.f;render()}
@@ -563,6 +580,12 @@ document.addEventListener("keydown",function(e){if(e.key==="Escape"&&S.lightbox)
 
 app.addEventListener("change",async function(e){
   var t=e.target;
+  if(t.dataset.sitesel){   // 選工地 → 帶入工地別與工程名稱
+    var pre=t.dataset.sitesel,inp=document.getElementById(pre+"-site"),pj=document.getElementById(pre+"-proj"),x=S.sites[Number(t.value)];
+    if(t.value==="other"){inp.hidden=false;inp.value="";inp.focus()}
+    else{inp.hidden=true;inp.value=x?x.site:"";if(x&&pj)pj.value=x.project}
+    return;
+  }
   if(t.id==="me"){S.me=t.value.trim();lsSet("me",S.me);render();return}
   if(t.id==="cur-loc"){S.lastLoc=t.value.trim();return}
   if(t.dataset.act==="signed"){var m=meeting(S.mid);m.signed=t.checked;schedule();saveMeeting({id:m.id,signed:t.checked});return}
@@ -581,7 +604,13 @@ app.addEventListener("input",function(e){
 });
 app.addEventListener("submit",async function(e){
   e.preventDefault();var f=e.target;
-  if(f.id==="gate"){S.code=document.getElementById("gate-code").value.trim();lsSet("code",S.code);S.needCode=false;render();refresh();return}
+  if(f.id==="gate"){
+    var u=document.getElementById("gate-user").value.trim(),pw=document.getElementById("gate-pass").value;
+    S.loggingIn=true;render();
+    try{var r=await post({action:"login",user:u,pass:pw},{tmos:[20000,30000]});S.token=r.token;lsSet("token",r.token);S.needLogin=false;S.loggingIn=false;render();refresh()}
+    catch(err){S.loggingIn=false;render();document.getElementById("gate-user").value=u;toast(err.message)}
+    return;
+  }
   if(f.id==="newform"){
     var m={id:"m"+uid(),date:document.getElementById("nf-date").value,site:document.getElementById("nf-site").value.trim(),project:document.getElementById("nf-proj").value.trim()};
     if(!m.date||!m.site||!m.project){toast("請填完日期、工地與工程名稱");return}
@@ -591,6 +620,7 @@ app.addEventListener("submit",async function(e){
   }
   if(f.id==="metaform"){
     var mm={id:S.mid,date:document.getElementById("mf-date").value,site:document.getElementById("mf-site").value.trim(),project:document.getElementById("mf-proj").value.trim(),skip:document.getElementById("mf-skip").checked};
+    if(!mm.date||!mm.site||!mm.project){toast("請填完日期、工地與工程名稱");return}
     if(await saveMeeting(mm)){S.editMeta=false;render();toast("已儲存")}
   }
 });
@@ -707,8 +737,9 @@ async function exportProgress(){
 }
 
 /* ---------- 啟動：先顯示上次的資料，背景再更新 ---------- */
-loadCache();render();
-if(!/請貼上/.test(GAS_URL))refresh();
+if(!S.needLogin)loadCache();
+render();
+if(!/請貼上/.test(GAS_URL)&&!S.needLogin)refresh();
 })();
 </script>
 </body>
