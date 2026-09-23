@@ -232,6 +232,9 @@ h2{font-size:17px;margin:0}
 .upfolder .acts{display:flex;gap:8px;flex-wrap:wrap}
 .upfolder.mini{grid-template-columns:auto 1fr auto;align-items:center;padding:10px 14px}
 .upfolder.mini .lnk{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.upprog{grid-column:1/-1;display:flex;flex-direction:column;gap:5px;font-size:13.5px;color:var(--ink-2)}
+.upprog .track{height:8px;background:var(--sunken);border-radius:4px;overflow:hidden}
+.upprog .track b{display:block;height:100%;background:var(--accent);transition:width .3s}
 .upfolder ol{margin:0;padding-left:20px;font-size:13.5px;color:var(--ink-2)}
 @media (max-width:640px){.upfolder{grid-template-columns:1fr}.upfolder #qr{grid-row:auto;justify-self:start}}
 .saved{margin-top:12px;font-size:14px}
@@ -466,14 +469,16 @@ function upUrl(m){return m&&m.upFolder?"https://drive.google.com/drive/folders/"
 function upFolderView(m){
   var url=upUrl(m);if(!url)return "";
   var busy=S.upfBusy[m.id],mini=lsGet("upmini")==="1";
+  var prog=busy?'<div class="upprog" role="status"><span>'+(busy.total==null?"檢查雲端上傳區…":"匯入中：已處理 <b class=\"mono\">"+busy.done+"</b> / 共 <b class=\"mono\">"+busy.total+"</b> 張（新增 "+busy.added+" 張"+(busy.wait?"，"+busy.wait+" 張雲端還在處理":"")+"）")+'</span>'+
+    '<span class="track"><b style="width:'+(busy.total?Math.round(busy.done/busy.total*100):4)+'%"></b></span></div>':"";
   var acts='<div class="acts"><button class="btn sm" data-act="upf-copy">複製連結</button><a class="btn sm" href="'+esc(url)+'" target="_blank" rel="noopener">開啟資料夾</a>'+
     '<button class="btn sm primary" data-act="upf-import"'+(busy?" disabled":"")+'>'+(busy?"匯入中…":"立即匯入")+'</button>'+
     '<button class="btn sm ghost" data-act="upf-mini">'+(mini?"展開 QR Code":"縮小")+'</button></div>';
-  if(mini)return '<div class="upfolder mini"><b>📁 雲端上傳區</b><span class="lnk">'+esc(url)+'</span>'+acts+'</div>';
+  if(mini)return '<div class="upfolder mini"><b>📁 雲端上傳區</b><span class="lnk">'+esc(url)+'</span>'+acts+prog+'</div>';
   return '<div class="upfolder"><div id="qr"></div>'+
     '<div><b>📁 雲端上傳區</b>　<span class="sub">用手機「Google 雲端硬碟」App 開這個連結直接丟照片，關掉 App 也會在背景傳完</span></div>'+
     '<div class="lnk">'+esc(url)+'</div>'+
-    '<ol><li>掃 QR Code 或把連結傳到 LINE 群組</li><li>在雲端硬碟 App 按「＋ → 上傳」選照片（要登入 Google 帳號）</li><li>約 5 分鐘內自動出現在下方，拍照人員依〈Google帳號〉分頁對照成姓名</li></ol>'+acts+'</div>';
+    '<ol><li>掃 QR Code 或把連結傳到 LINE 群組</li><li>在雲端硬碟 App 按「＋ → 上傳」選照片（要登入 Google 帳號）</li><li>約 5 分鐘內自動出現在下方，拍照人員依〈Google帳號〉分頁對照成姓名</li></ol>'+acts+prog+'</div>';
 }
 function drawQR(){
   var el=document.getElementById("qr"),m=S.mid&&meeting(S.mid),url=upUrl(m);if(!el||!url||!window.QRCode)return;
@@ -646,11 +651,19 @@ app.addEventListener("click",async function(e){
   if(a==="upf-copy"){var u=upUrl(meeting(S.mid));if(!u)return;
     try{await navigator.clipboard.writeText(u);toast("已複製連結")}catch(err){toast("請手動選取連結複製")}return}
   if(a==="upf-import"){
-    var im=S.mid;S.upfBusy[im]=1;render();
-    try{var ri=await post({action:"importNow",mid:S.mid},{tmos:[120000,180000]});
-      toast(ri.added?"匯入 "+ri.added+" 張"+(ri.waiting?"，另有 "+ri.waiting+" 張雲端還在處理，稍後會自動匯入":""):(ri.waiting?"有 "+ri.waiting+" 張雲端還在處理，稍後再試":"沒有新照片"));
-      if(ri.added)refresh()}
-    catch(err){toast("匯入失敗："+err.message)}
+    // 分批（每批 6 張）呼叫，顯示「已處理 x / 共 y 張」；每批完成就重新讀取，照片陸續出現
+    var im=S.mid,skip=[],added=0,total=null,b={done:0,total:null,added:0,wait:0};S.upfBusy[im]=b;render();
+    try{
+      for(var round=0;round<100;round++){
+        var ri=await post({action:"importNow",mid:im,limit:6,skip:skip},{tmos:[120000,180000]});
+        if(total===null)total=ri.total;
+        added+=ri.added;skip=skip.concat(ri.waitingIds||[]);
+        b.total=total;b.added=added;b.wait=skip.length;b.done=Math.min(total,added+skip.length);render();
+        if(ri.added)refresh();
+        if(!ri.remaining||(!ri.added&&!ri.waiting))break;
+      }
+      toast(total?"匯入完成：新增 "+added+" 張"+(skip.length?"，"+skip.length+" 張雲端還在處理，稍後會自動匯入":""):"沒有新照片");
+    }catch(err){toast("匯入中斷："+err.message+(added?"（已新增 "+added+" 張）":""))}
     delete S.upfBusy[im];render();return;
   }
   if(a==="home"){S.view="home";S.mid=null;S.editMeta=false;render();scrollTo(0,0)}
