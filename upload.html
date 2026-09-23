@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>巡查拍照上傳</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://lh3.googleusercontent.com" crossorigin>
+<link rel="preconnect" href="https://lh3.googleusercontent.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <style>
@@ -312,7 +314,7 @@ function meetingView(m){
     (list.length?list.map(itemView).join(""):'<div class="empty">還沒有照片，按上面「拍照」開始。</div>');
 }
 function itemView(d){
-  var src=d._localEdit||d._local||S.local[d.photo]||(d.photo?"https://drive.google.com/thumbnail?id="+encodeURIComponent(d.photo)+"&sz=w300":"");
+  var src=d._localEdit||d._local||S.local[d.photo]||(d.photo?"https://lh3.googleusercontent.com/d/"+encodeURIComponent(d.photo)+"=w300":"");
   var st=d._busy?'<span class="st">更新標註中…</span>':d._editFail?'<span class="st fail">標註上傳失敗<button class="btn" data-act="retry-edit" data-id="'+esc(d.id)+'">重試</button><button class="btn danger" data-act="drop-edit" data-id="'+esc(d.id)+'">放棄</button></span>':d._pending?(d._fail?'<span class="st fail">上傳失敗<button class="btn" data-act="retry" data-id="'+esc(d.id)+'">重試</button><button class="btn danger" data-act="drop" data-id="'+esc(d.id)+'">刪除</button></span>':'<span class="st">上傳中…</span>'):"";
   var del=d._pending||d.selected?"":(S.confirmDel===d.id?'<span>刪除？<button class="btn danger" data-act="del-yes" data-id="'+esc(d.id)+'">刪除</button> <button class="btn" data-act="del-no">取消</button></span>':'<button class="lnk" data-act="del" data-id="'+esc(d.id)+'">刪除</button>');
   return '<div class="item"><div class="thumb">'+(src?'<img src="'+esc(src)+'" alt="" referrerpolicy="no-referrer">':'')+st+'</div>'+
@@ -322,7 +324,11 @@ function itemView(d){
 }
 
 /* ---------- 照片 ---------- */
-function loadImg(src){return new Promise(function(res,rej){var i=new Image();i.onload=function(){res(i)};i.onerror=rej;i.src=src})}
+function loadImg(src){return new Promise(function(res,rej){var i=new Image();
+  if(/^https?:/.test(src)){i.crossOrigin="anonymous";i.referrerPolicy="no-referrer"}   // 網址圖片要能畫進畫布（Google 圖片網址允許跨網域）
+  i.onload=function(){res(i)};i.onerror=rej;i.src=src})}
+/** Google 圖片網址：走 Google CDN、允許網頁取用，比經後端讀原檔快很多 */
+function cdnUrl(fid,w){return "https://lh3.googleusercontent.com/d/"+encodeURIComponent(fid)+"=w"+(w||1600)}
 async function compress(file){
   var url=URL.createObjectURL(file);
   try{
@@ -404,7 +410,7 @@ function fitem(id){return F.items.find(function(x){return x.id===id})}
 function fmeeting(){var id=F.mid;return F.meetings.find(function(m){return m.id===id})}
 function fitemsOf(mid){return F.items.filter(function(x){return x.mid===mid})}   // 後端已依會議勾選順序排好
 function fmissing(it){var r=[];if(!it.midPhoto)r.push("改善中照片");if(!it.actualDate)r.push("實際改善日期");if(!it.method)r.push("改善作法");if(!it.afterPhoto)r.push("改善後照片");if(!it.prevent)r.push("矯正預防措施");return r}
-function thumb(fid,w){return fid?(S.local[fid]||"https://drive.google.com/thumbnail?id="+encodeURIComponent(fid)+"&sz=w"+(w||300)):""}
+function thumb(fid,w){return fid?(S.local[fid]||"https://lh3.googleusercontent.com/d/"+encodeURIComponent(fid)+"=w"+(w||300)):""}
 async function loadFix(){
   if(F.loading)return;F.loading=true;if(!F.loaded)render();
   try{var r=await post({action:"m_fixList"});F.meetings=r.meetings;F.items=r.items;F.loaded=true;if(F.mid&&!fmeeting())F.mid=null;if(F.id&&!fitem(F.id))F.id=null}
@@ -525,8 +531,11 @@ async function edOpen(o){
       tool:lsGet("ed_tool")||"rect",color:lsGet("ed_color")||COLORS[0][0],w:Number(lsGet("ed_w")||2),a:Number(lsGet("ed_a")||1)};
   edRender(true);
   try{
-    if(!src){var r=await post({action:"m_photoData",id:d.id},[30000,45000]);src="data:image/jpeg;base64,"+r.data;S.local[d.photo]=src}
-    var img=await loadImg(src),c=document.createElement("canvas");c.width=img.naturalWidth;c.height=img.naturalHeight;c.getContext("2d").drawImage(img,0,0);
+    var img;
+    if(src)img=await loadImg(src);
+    else try{img=await loadImg(cdnUrl(d.photo))}   // 先走 Google 圖片網址（快），不行才經後端讀原檔
+    catch(e1){var r=await post({action:"m_photoData",id:d.id},[30000,45000]);src="data:image/jpeg;base64,"+r.data;S.local[d.photo]=src;img=await loadImg(src)}
+    var c=document.createElement("canvas");c.width=img.naturalWidth;c.height=img.naturalHeight;c.getContext("2d").drawImage(img,0,0);
     if(!ED)return;ED.base=c;ED.W=c.width;ED.H=c.height;edRender();
   }catch(e){toast("讀取照片失敗："+e.message);closeEditor()}
 }

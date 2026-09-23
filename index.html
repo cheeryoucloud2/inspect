@@ -5,8 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>工務會議缺失巡查</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://lh3.googleusercontent.com" crossorigin>
+<link rel="preconnect" href="https://lh3.googleusercontent.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <style>
 :root{
   --ground:#EDEFEC; --surface:#FFFFFF; --sunken:#E3E6E2; --ink:#1C2630; --ink-2:#4A5560; --ink-3:#7A848C;
@@ -190,6 +193,14 @@ h2{font-size:17px;margin:0}
 .lw{display:inline-block;width:28px;border-radius:4px;background:currentColor}
 .ed-info{display:flex;align-items:center;gap:10px;padding:0 12px 6px;flex-wrap:wrap;font-size:14px;color:#cfd6d2}
 .ed-info .t{flex:1 1 200px;min-width:0}
+.ed-info .ef{display:flex;gap:8px;flex:1 1 420px;min-width:0;align-items:center}
+.ed-info input{font:inherit;font-size:14px;color:#fff;background:#1E252B;border:1px solid #3A434B;border-radius:8px;padding:7px 10px;min-width:0}
+.ed-info input:focus{border-color:#E8A900;outline:none}
+.ed-info input::placeholder{color:#7d878f}
+.ed-info #ed-loc{flex:0 1 190px}
+.ed-info #ed-desc{flex:1 1 260px}
+.ed-info .by{opacity:.7;white-space:nowrap}
+.ed-info .svd{font-size:12.5px;color:#8fd3a8;white-space:nowrap;min-width:4.5em}
 .ed-info .t b{color:#fff}
 .ed-info .cnt{font-family:var(--mono);color:#fff}
 .ed button.sel{background:#E8A900;border-color:#E8A900;color:#1C2630;font-weight:700}
@@ -215,6 +226,12 @@ h2{font-size:17px;margin:0}
 .meta-edit{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;margin-top:12px;display:grid;grid-template-columns:150px 1fr 2fr;gap:10px;align-items:end}
 .meta-edit .acts{grid-column:1/-1;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 @media (max-width:760px){.meta-edit{grid-template-columns:1fr}}
+.upfolder{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;margin-top:12px;display:grid;grid-template-columns:auto 1fr;gap:6px 18px;align-items:start}
+.upfolder #qr{grid-row:1/5;background:#fff;padding:8px;border-radius:6px;line-height:0}
+.upfolder .lnk{font-family:var(--mono);font-size:12.5px;word-break:break-all;color:var(--ink-2)}
+.upfolder .acts{display:flex;gap:8px;flex-wrap:wrap}
+.upfolder ol{margin:0;padding-left:20px;font-size:13.5px;color:var(--ink-2)}
+@media (max-width:640px){.upfolder{grid-template-columns:1fr}.upfolder #qr{grid-row:auto;justify-self:start}}
 .saved{margin-top:12px;font-size:14px}
 .saved a{color:var(--focus)}
 .sync{font-size:12px;opacity:.75}
@@ -240,7 +257,7 @@ var S = {
   me: lsGet("me") || "", token: lsGet("token") || "", lastLoc: "",
   local: new Map(),      // fileId 或 暫存鍵 → 本機 dataURL（剛上傳的照片先用本機的，不等雲端縮圖）
   queue: [], active: 0, inflight: 0, dirty:false,
-  confirmDel:null, lightbox:null, showNew:false, editMeta:false, needLogin:!lsGet("token"), loggingIn:false, saved:null, exporting:false,
+  confirmDel:null, lightbox:null, showNew:false, editMeta:false, upf:null, needLogin:!lsGet("token"), loggingIn:false, saved:null, exporting:false,
 };
 var app = document.getElementById("app");
 
@@ -325,7 +342,11 @@ setInterval(poll,30000);
 document.addEventListener("visibilitychange",function(){if(!document.hidden)poll()});
 
 /* ---------- 照片 ---------- */
-function loadImg(src){return new Promise(function(res,rej){var i=new Image();i.onload=function(){res(i)};i.onerror=rej;i.src=src})}
+function loadImg(src){return new Promise(function(res,rej){var i=new Image();
+  if(/^https?:/.test(src)){i.crossOrigin="anonymous";i.referrerPolicy="no-referrer"}   // 網址圖片要能畫進畫布（Google 圖片網址允許跨網域）
+  i.onload=function(){res(i)};i.onerror=rej;i.src=src})}
+/** Google 圖片網址：走 Google CDN、允許網頁取用，比經後端讀原檔快很多 */
+function cdnUrl(fid,w){return "https://lh3.googleusercontent.com/d/"+encodeURIComponent(fid)+"=w"+(w||1600)}
 async function compress(src,max,limit){
   var url=typeof src==="string"?src:URL.createObjectURL(src);
   try{
@@ -344,7 +365,7 @@ async function compress(src,max,limit){
 function photoSrc(fileId,w){
   if(!fileId)return"";
   if(S.local.has(fileId))return S.local.get(fileId);
-  return "https://drive.google.com/thumbnail?id="+encodeURIComponent(fileId)+"&sz=w"+(w||600);
+  return "https://lh3.googleusercontent.com/d/"+encodeURIComponent(fileId)+"=w"+(w||500);   // 直接走 Google 圖片 CDN（舊的 drive 縮圖網址每張都要多轉址一次）
 }
 function imgTag(fileId,alt,w){var s=photoSrc(fileId,w);return s?'<img src="'+esc(s)+'" alt="'+esc(alt||"")+'" decoding="async" referrerpolicy="no-referrer">':""}
 
@@ -365,6 +386,7 @@ function render(){
   if(S.lightbox) h+='<div class="lightbox" data-act="closebox"><img src="'+esc(S.lightbox)+'" alt="放大照片" referrerpolicy="no-referrer"></div>';
   app.innerHTML=h;
   fillDatalists();
+  drawQR();
 }
 function topbar(){
   var sync=S.offline?"離線（顯示上次資料）":S.active?"上傳中 "+(S.active+S.queue.length)+" 張":"";
@@ -430,11 +452,26 @@ function meetingView(m){
   '<div class="mhead"><div><div class="eyebrow">工務會議 <span class="mono">'+esc(roc(m.date))+'</span>　<button class="link" data-act="edit-meta">編輯會議資料</button></div>'+
     '<h1 style="margin-top:2px">'+esc(m.site)+'　<span style="font-weight:500;font-size:17px;color:var(--ink-2)">'+esc(m.project)+'</span></h1>'+
     '<span class="pill '+s[0]+'">'+s[1]+'</span></div>'+
-    '<button class="btn primary" data-act="export" '+(st.sel&&!S.exporting?"":"disabled")+'>'+(S.exporting?"產生中…":"匯出缺失改善紀錄表 (Excel)")+'</button></div>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="upf-open">📁 雲端上傳區</button><button class="btn primary" data-act="export" '+(st.sel&&!S.exporting?"":"disabled")+'>'+(S.exporting?"產生中…":"匯出缺失改善紀錄表 (Excel)")+'</button></div></div>'+
   (S.editMeta?metaForm(m):"")+
+  (S.upf&&S.upf.mid===m.id?upFolderView():"")+
   (S.saved&&S.saved.mid===m.id?'<div class="saved">已下載，並存一份到雲端：<a href="'+esc(S.saved.folderUrl)+'" target="_blank" rel="noopener">開啟這場會議的雲端資料夾</a></div>':"")+
   '<nav class="tabs" role="tablist">'+tabs.map(function(t){return '<button class="tab" role="tab" aria-selected="'+(S.tab===t[0])+'" data-act="tab" data-tab="'+t[0]+'"><span class="step">'+t[1]+'</span>'+t[2]+'<span class="cnt">'+t[3]+'</span></button>'}).join("")+'</nav>'+
   '<section class="panel">'+(S.tab==="shoot"?shootPanel(m):S.tab==="pick"?pickPanel(m):fixPanel(m))+'</section>';
+}
+function upFolderView(){
+  var u=S.upf;
+  if(!u.url)return '<div class="upfolder"><span class="sub">建立雲端上傳區中…</span></div>';
+  return '<div class="upfolder"><div id="qr"></div>'+
+    '<div><b>雲端上傳區</b>　<span class="sub">用手機「Google 雲端硬碟」App 開這個連結直接丟照片，關掉 App 也會在背景傳完</span></div>'+
+    '<div class="lnk">'+esc(u.url)+'</div>'+
+    '<ol><li>掃 QR Code 或把連結傳到 LINE 群組</li><li>在雲端硬碟 App 按「＋ → 上傳」選照片（要登入 Google 帳號）</li><li>約 5 分鐘內自動出現在「巡查拍照」，拍照人員依〈Google帳號〉分頁對照成姓名</li></ol>'+
+    '<div class="acts"><button class="btn sm" data-act="upf-copy">複製連結</button><a class="btn sm" href="'+esc(u.url)+'" target="_blank" rel="noopener">開啟資料夾</a>'+
+    '<button class="btn sm primary" data-act="upf-import"'+(u.importing?" disabled":"")+'>'+(u.importing?"匯入中…":"立即匯入")+'</button><button class="btn sm ghost" data-act="upf-close">收起</button></div></div>';
+}
+function drawQR(){
+  var el=document.getElementById("qr");if(!el||!S.upf||!S.upf.url||!window.QRCode)return;
+  el.innerHTML="";new QRCode(el,{text:S.upf.url,width:132,height:132,correctLevel:QRCode.CorrectLevel.M});
 }
 function metaForm(m){
   return '<form class="meta-edit" id="metaform"><label class="field"><span>會議日期</span><input type="date" id="mf-date" value="'+esc(m.date)+'" required></label>'+
@@ -445,14 +482,18 @@ function metaForm(m){
 }
 
 function shootPanel(m){
-  var all=defectsOf(m.id),ds=S.filter==="mine"?all.filter(function(d){return d.by&&d.by===S.me}):all;
-  var mineN=all.filter(function(d){return d.by&&d.by===S.me}).length;
+  var all=defectsOf(m.id),ds=byFilter(all);
+  // 拍攝者按鈕：依張數多到少；自己排第一個
+  var cnt={};all.forEach(function(d){var k=d.by||"未署名";cnt[k]=(cnt[k]||0)+1});
+  var who=Object.keys(cnt).sort(function(a,b){return (b===S.me)-(a===S.me)||cnt[b]-cnt[a]||a.localeCompare(b)});
+  if(S.filter!=="all"&&!cnt[S.filter.slice(3)])S.filter="all";
   return '<div class="drop" id="drop"><label class="btn primary" for="shoot-file">📷 拍照或選擇照片</label><input type="file" id="shoot-file" accept="image/*" multiple>'+
     '<label class="field"><span>目前位置（新照片會帶入）</span><input id="cur-loc" list="dl-loc" value="'+esc(S.lastLoc)+'" placeholder="例：IL棟 1F 廚房區"></label>'+
     '<span class="uploading">可一次選多張，照片會自動壓縮。</span></div>'+
   '<div class="panel-intro" style="margin-top:14px"><p>每個人把看到的缺失拍下來，補上位置與說明。會議報告時大家看同一個畫面，不用再翻 LINE 相簿。</p>'+
-    '<div class="chips"><button class="chip" aria-pressed="'+(S.filter==="all")+'" data-act="filter" data-f="all">全部 '+all.length+'</button><button class="chip" aria-pressed="'+(S.filter==="mine")+'" data-act="filter" data-f="mine">我拍的 '+mineN+'</button></div></div>'+
-  (ds.length?'<div class="grid">'+ds.map(shootCard).join("")+'</div>':'<div class="empty">'+(S.filter==="mine"&&!S.me?"先在右上角填入你的名字，才能篩選你拍的照片。":"還沒有照片。按上方「拍照或選擇照片」開始。")+'</div>');
+    '<div class="chips" aria-label="依拍攝者篩選"><button class="chip" aria-pressed="'+(S.filter==="all")+'" data-act="filter" data-f="all">全部 '+all.length+'</button>'+
+      who.map(function(n){return '<button class="chip" aria-pressed="'+(S.filter==="by:"+n)+'" data-act="filter" data-f="by:'+esc(n)+'">'+esc(n)+(n===S.me?"（我）":"")+' '+cnt[n]+'</button>'}).join("")+'</div></div>'+
+  (ds.length?'<div class="grid">'+ds.map(shootCard).join("")+'</div>':'<div class="empty">還沒有照片。按上方「拍照或選擇照片」開始，或用「雲端上傳區」。</div>');
 }
 function phBox(d,extra){
   var inner=d._pending?'<img src="'+esc(d._local)+'" alt="">':d._localEdit?'<img src="'+esc(d._localEdit)+'" alt="">':imgTag(d.photo,d.desc);
@@ -465,6 +506,8 @@ function shootCard(d){
     '<label class="field"><span>缺失說明</span><textarea data-f="desc" data-id="'+esc(d.id)+'" rows="2" placeholder="例：斜撐圓管未固定、已損壞">'+esc(d.desc)+'</textarea></label>'+
     '<div class="foot">'+(d._pending?'<span></span>':editBtn(d))+'<span>'+(d.selected?"已列入改善　":"")+(d._pending?"":delCtl(d))+'</span></div></div></article>';
 }
+/** 目前選的拍攝者（S.filter＝"all" 或 "by:姓名"） */
+function byFilter(list){if(S.filter.indexOf("by:")!==0)return list;var n=S.filter.slice(3);return list.filter(function(d){return (d.by||"未署名")===n})}
 function editBtn(d){return '<button class="btn sm" data-act="edit" data-id="'+esc(d.id)+'"'+(d._editing?" disabled":"")+'>✏️ 標註／旋轉</button>'}
 function delCtl(d){
   if(S.confirmDel===d.id)return '<span class="confirm">刪除這張？<button class="btn sm danger" data-act="del-yes" data-id="'+esc(d.id)+'">刪除</button><button class="btn sm ghost" data-act="del-no">取消</button></span>';
@@ -584,6 +627,23 @@ app.addEventListener("click",async function(e){
   var t=e.target.closest("[data-act]");if(!t)return;
   var a=t.dataset.act,id=t.dataset.id;
   if(a==="logout"){logout();return}
+  if(a==="upf-open"){
+    S.upf={mid:S.mid,url:null};render();
+    try{var ru=await post({action:"uploadFolder",mid:S.mid},{tmos:[30000,45000]});if(S.upf&&S.upf.mid===S.mid){S.upf.url=ru.url;render()}}
+    catch(err){S.upf=null;render();toast("建立雲端上傳區失敗："+err.message)}
+    return;
+  }
+  if(a==="upf-close"){S.upf=null;render();return}
+  if(a==="upf-copy"){var u=S.upf&&S.upf.url;if(!u)return;
+    try{await navigator.clipboard.writeText(u);toast("已複製連結")}catch(err){toast("請手動選取連結複製")}return}
+  if(a==="upf-import"){
+    S.upf.importing=true;render();
+    try{var ri=await post({action:"importNow",mid:S.mid},{tmos:[120000,180000]});
+      toast(ri.added?"匯入 "+ri.added+" 張"+(ri.waiting?"，另有 "+ri.waiting+" 張雲端還在處理，稍後會自動匯入":""):(ri.waiting?"有 "+ri.waiting+" 張雲端還在處理，稍後再試":"沒有新照片"));
+      if(ri.added)refresh()}
+    catch(err){toast("匯入失敗："+err.message)}
+    if(S.upf)S.upf.importing=false;render();return;
+  }
   if(a==="home"){S.view="home";S.mid=null;S.editMeta=false;render();scrollTo(0,0)}
   else if(a==="open"){S.view="meeting";S.mid=id;S.tab=selectedOf(id).length?"fix":"shoot";S.filter="all";S.editMeta=false;render();scrollTo(0,0)}
   else if(a==="toggle-new"){S.showNew=!S.showNew;render();if(S.showNew)(document.getElementById("nf-sel")||document.getElementById("nf-site")).focus()}
@@ -683,7 +743,7 @@ async function photoData(fid){
 function edListIds(){
   if(!S.mid)return [];
   var ds=defectsOf(S.mid).filter(function(x){return !x._pending});
-  if(S.tab==="shoot"&&S.filter==="mine")ds=ds.filter(function(x){return x.by&&x.by===S.me});
+  if(S.tab==="shoot")ds=byFilter(ds);
   return ds.map(function(x){return x.id});
 }
 function openEditor(d){
@@ -695,10 +755,12 @@ function openEditor(d){
 }
 async function edLoad(d){
   var my=++ED.seq;   // 快速連按下一張時，只顯示最後一張
-  ED.d=d;ED.shapes=[];ED.drag=null;ED.base=null;ED.rotated=false;ED.warned=false;edRender(true);
+  ED.d=d;ED.shapes=[];ED.drag=null;ED.base=null;ED.rotated=false;ED.warned=false;ED.savedMsg="";edRender(true);
   try{
-    var src=d._localEdit||await photoData(d.photo);
-    var img=await loadImg(src),c=document.createElement("canvas");c.width=img.naturalWidth;c.height=img.naturalHeight;c.getContext("2d").drawImage(img,0,0);
+    var img;
+    if(d._localEdit)img=await loadImg(d._localEdit);
+    else try{img=await loadImg(cdnUrl(d.photo))}catch(e1){img=await loadImg(await photoData(d.photo))}   // 先走 Google 圖片網址，不行才經後端
+    var c=document.createElement("canvas");c.width=img.naturalWidth;c.height=img.naturalHeight;c.getContext("2d").drawImage(img,0,0);
     if(!ED||ED.seq!==my)return;ED.base=c;ED.W=c.width;ED.H=c.height;edRender();
   }catch(e){if(ED&&ED.seq===my){toast("讀取照片失敗："+e.message);edRender()}}
 }
@@ -711,7 +773,23 @@ function edCommit(){
   ED.shapes=[];ED.rotated=false;
   return true;
 }
+/** 位置、缺失說明：打字停 0.8 秒或離開欄位就在背景儲存 */
+function edQueue(field,val){
+  if(!ED)return;ED.pend=ED.pend||{};ED.pend[field]=val.trim();ED.savedMsg="";edSvd("");
+  clearTimeout(ED.saveT);ED.saveT=setTimeout(edFlush,800);
+}
+function edFlush(){
+  if(!ED||!ED.pend)return;clearTimeout(ED.saveT);
+  var d=S.defects.find(function(x){return x.id===ED.d.id})||ED.d,p={},n=0;
+  for(var k in ED.pend)if((d[k]||"")!==ED.pend[k]){p[k]=ED.pend[k];n++}
+  ED.pend=null;
+  if(!n)return;
+  if(p.location)S.lastLoc=p.location;
+  var box=ED;upd(d.id,p).then(function(){if(ED===box){ED.savedMsg="✓ 已儲存";edSvd(ED.savedMsg)}});
+}
+function edSvd(t){var el=ED&&ED.box.querySelector("#ed-svd");if(el)el.textContent=t}
 function edGo(step){
+  edFlush();
   var i=ED.ids.indexOf(ED.d.id),j=i+step;
   if(i<0||j<0||j>=ED.ids.length)return;
   var nd=S.defects.find(function(x){return x.id===ED.ids[j]});if(!nd)return;
@@ -721,16 +799,20 @@ async function edToggleSel(){
   var d=S.defects.find(function(x){return x.id===ED.d.id})||ED.d;await upd(d.id,{selected:!d.selected});
   if(ED&&ED.d.id===d.id){edRender(!ED.base);toast(d.selected?"已列入改善":"已取消列入改善")}
 }
-function closeEditor(){if(ED){ED.box.remove();ED=null;document.body.style.overflow=""}}
+function closeEditor(){if(ED){edFlush();ED.box.remove();ED=null;document.body.style.overflow=""}}
 function edRender(loading){
   var b=ED.box,seg=function(g,list){return '<div class="seg" data-g="'+g+'">'+list.map(function(o){return '<button data-v="'+o[0]+'" aria-pressed="'+(String(ED[g])===String(o[0]))+'" aria-label="'+o[2]+'">'+o[1]+'</button>'}).join("")+'</div>'};
+  // 重畫前記住游標（例如照片載入完成時正在輸入說明），重畫後放回去
+  var fa=document.activeElement,fid=fa&&ED.box.contains(fa)&&fa.id,fs=fid&&fa.selectionStart,fe=fid&&fa.selectionEnd;
   var cur=S.defects.find(function(x){return x.id===ED.d.id});if(cur)ED.d=cur;   // 背景重新讀取後換成最新的資料
   var d=ED.d,i=ED.ids.indexOf(d.id),n=ED.ids.length,no=d.selected?selectedOf(d.mid).indexOf(d)+1:0;
   b.innerHTML='<div class="ed-top"><button data-ed="cancel" title="Esc">關閉</button>'+
     '<button class="nav" data-ed="prev" title="上一張（←）"'+(i>0?'':' disabled')+'>‹</button><span class="ed-info" style="padding:0"><span class="cnt">'+(i+1)+' / '+n+'</span></span>'+
     '<button class="nav" data-ed="next" title="下一張（→）"'+(i>=0&&i<n-1?'':' disabled')+'>›</button><span class="sp"></span>'+
     '<button data-ed="rot">⟳ 旋轉</button><button data-ed="undo"'+(ED.shapes.length?'':' disabled')+'>↶ 復原</button><button class="ok" data-ed="save">完成</button></div>'+
-    '<div class="ed-info"><span class="t">'+esc(d.location||"（未填位置）")+'　<b>'+esc(d.desc||"（未填缺失說明）")+'</b>　<span style="opacity:.7">'+esc(d.by||"")+'</span></span>'+
+    '<div class="ed-info"><span class="ef"><input id="ed-loc" list="dl-loc" placeholder="位置，例：IL棟 1F 廚房區" value="'+esc(ED.pend&&"location" in ED.pend?ED.pend.location:d.location)+'" enterkeyhint="next" aria-label="位置">'+
+      '<input id="ed-desc" placeholder="缺失說明，例：斜撐圓管未固定、已損壞" value="'+esc(ED.pend&&"desc" in ED.pend?ED.pend.desc:d.desc)+'" enterkeyhint="done" aria-label="缺失說明">'+
+      '<span class="svd" id="ed-svd">'+(ED.savedMsg||"")+'</span><span class="by">'+esc(d.by||"")+'</span></span>'+
     '<button data-ed="sel" class="'+(d.selected?"sel":"")+'">'+(d.selected?"✓ 已列入改善"+(no?"（"+pad2(no)+"）":""):"☐ 標記為需改善")+'</button></div>'+
     '<div class="ed-stage"><canvas id="edc"></canvas>'+(loading?'<div class="busy">讀取照片中…</div>':'')+'</div>'+
     '<div class="ed-tools">'+
@@ -739,6 +821,7 @@ function edRender(loading){
       seg("w",[[1,'<span class="lw" style="height:2px"></span>細',"細"],[2,'<span class="lw" style="height:5px"></span>中',"中"],[3,'<span class="lw" style="height:9px"></span>粗',"粗"]])+
       seg("a",[[1,'<span class="sw" style="background:'+ED.color+'"></span>100%',"不透明"],[.75,'<span class="sw" style="background:'+ED.color+';opacity:.75"></span>75%',"透明度 75%"],[.5,'<span class="sw" style="background:'+ED.color+';opacity:.5"></span>50%',"透明度 50%"],[.3,'<span class="sw" style="background:'+ED.color+';opacity:.3"></span>30%',"透明度 30%"]])+
     '</div>';
+  if(fid){var fe2=b.querySelector("#"+fid);if(fe2){fe2.focus();try{fe2.setSelectionRange(fs,fe)}catch(err){}}}
   var cv=b.querySelector("#edc");
   cv.addEventListener("pointerdown",edDown);cv.addEventListener("pointermove",edMove);cv.addEventListener("pointerup",edUp);cv.addEventListener("pointercancel",edUp);
   edDraw();
@@ -809,8 +892,19 @@ document.addEventListener("click",function(e){
   else if(a==="next")edGo(1);
   else if(a==="sel")edToggleSel();
 });
+document.addEventListener("input",function(e){
+  if(!ED||!ED.box.contains(e.target))return;
+  if(e.target.id==="ed-loc")edQueue("location",e.target.value);
+  else if(e.target.id==="ed-desc")edQueue("desc",e.target.value);
+});
+document.addEventListener("change",function(e){if(ED&&ED.box.contains(e.target)&&(e.target.id==="ed-loc"||e.target.id==="ed-desc"))edFlush()});
 document.addEventListener("keydown",function(e){
   if(!ED)return;
+  if(/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)){   // 在輸入框打字時，方向鍵不換張
+    if(e.key==="Enter"){e.preventDefault();if(e.target.id==="ed-loc"){var ds=ED.box.querySelector("#ed-desc");if(ds)ds.focus()}else e.target.blur();edFlush()}
+    else if(e.key==="Escape")e.target.blur();
+    return;
+  }
   if(e.key==="Escape")closeEditor();
   else if(e.key==="ArrowLeft"){e.preventDefault();edGo(-1)}
   else if(e.key==="ArrowRight"){e.preventDefault();edGo(1)}
@@ -825,7 +919,14 @@ var XF={name:"微軟正黑體",size:10},THIN={style:"thin",color:{argb:"FF000000
 
 /** 照片原檔 → 縮到 1000px 放進 Excel（檔案不會太大） */
 async function fetchPhotos(ids){
-  var out={},need=ids.filter(function(id){return id});
+  var out={},all=ids.filter(function(id){return id}),need=[],done=0;
+  // 先走 Google 圖片網址（同時 4 張），讀不到的再經後端
+  for(var j=0;j<all.length;j+=4){
+    await Promise.all(all.slice(j,j+4).map(function(id){
+      return compress(cdnUrl(id,1000),1000,400000).then(function(d){out[id]=d},function(){need.push(id)}).then(function(){done++});
+    }));
+    toast("讀取照片 "+done+" / "+all.length);
+  }
   for(var i=0;i<need.length;i+=6){
     var r=await post({action:"photos",ids:need.slice(i,i+6)},{tmos:[40000,60000,90000]});
     for(var k in r.data)if(r.data[k])out[k]=await compress("data:image/jpeg;base64,"+r.data[k],1000,400000);
