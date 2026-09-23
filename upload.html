@@ -74,7 +74,9 @@ h1{font-size:21px;margin:4px 0 2px;line-height:1.3}
 .thumb{position:relative;width:108px;height:108px;border-radius:8px;overflow:hidden;background:var(--sunken)}
 .thumb img{width:100%;height:100%;object-fit:cover;display:block}
 .thumb .st{position:absolute;inset:0;display:grid;place-items:center;background:rgba(20,26,30,.5);color:#fff;font-size:13px;font-weight:500;text-align:center;padding:4px}
-.thumb .st.fail{background:rgba(160,40,20,.75)}
+.thumb .st.fail{background:rgba(160,40,20,.8);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}
+.st .btn{color:var(--ink);background:#fff;border-color:#fff;padding:4px 10px;font-size:13px}
+.st .btn.danger{color:#fff;background:transparent;border-color:#fff}
 .item .body{display:flex;flex-direction:column;gap:6px;min-width:0}
 .item .loc{font-size:13px;color:var(--ink-2)}
 .item textarea{width:100%;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:6px 9px;font-size:15px;resize:vertical;min-height:54px}
@@ -132,7 +134,7 @@ h1{font-size:21px;margin:4px 0 2px;line-height:1.3}
 .fphoto{position:relative;border-radius:8px;overflow:hidden;background:var(--sunken);aspect-ratio:4/3}
 .fphoto img{width:100%;height:100%;object-fit:cover;display:block}
 .fphoto .st{position:absolute;inset:0;display:grid;place-items:center;background:rgba(20,26,30,.5);color:#fff;font-size:14px;text-align:center}
-.fphoto .st.fail{background:rgba(160,40,20,.75)}
+.fphoto .st.fail{background:rgba(160,40,20,.8);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px}
 .fbtns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .fbtns label{display:flex;align-items:center;justify-content:center;gap:6px;border-radius:10px;padding:12px 6px;font-weight:700;cursor:pointer;border:1.5px solid var(--line-strong);background:var(--surface);font-size:15px}
 .fbtns label.cam{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
@@ -311,7 +313,7 @@ function meetingView(m){
 }
 function itemView(d){
   var src=d._localEdit||d._local||S.local[d.photo]||(d.photo?"https://drive.google.com/thumbnail?id="+encodeURIComponent(d.photo)+"&sz=w300":"");
-  var st=d._busy?'<span class="st">更新標註中…</span>':d._editFail?'<span class="st fail">標註上傳失敗<br><button class="btn" data-act="retry-edit" data-id="'+esc(d.id)+'">重試</button></span>':d._pending?(d._fail?'<span class="st fail">上傳失敗<br><button class="btn" data-act="retry" data-id="'+esc(d.id)+'">重試</button></span>':'<span class="st">上傳中…</span>'):"";
+  var st=d._busy?'<span class="st">更新標註中…</span>':d._editFail?'<span class="st fail">標註上傳失敗<button class="btn" data-act="retry-edit" data-id="'+esc(d.id)+'">重試</button><button class="btn danger" data-act="drop-edit" data-id="'+esc(d.id)+'">放棄</button></span>':d._pending?(d._fail?'<span class="st fail">上傳失敗<button class="btn" data-act="retry" data-id="'+esc(d.id)+'">重試</button><button class="btn danger" data-act="drop" data-id="'+esc(d.id)+'">刪除</button></span>':'<span class="st">上傳中…</span>'):"";
   var del=d._pending||d.selected?"":(S.confirmDel===d.id?'<span>刪除？<button class="btn danger" data-act="del-yes" data-id="'+esc(d.id)+'">刪除</button> <button class="btn" data-act="del-no">取消</button></span>':'<button class="lnk" data-act="del" data-id="'+esc(d.id)+'">刪除</button>');
   return '<div class="item"><div class="thumb">'+(src?'<img src="'+esc(src)+'" alt="" referrerpolicy="no-referrer">':'')+st+'</div>'+
     '<div class="body"><span class="loc">'+esc(d.location||"（未填位置）")+'</span>'+
@@ -324,12 +326,12 @@ function loadImg(src){return new Promise(function(res,rej){var i=new Image();i.o
 async function compress(file){
   var url=URL.createObjectURL(file);
   try{
-    var img=await loadImg(url),max=1600,q=.82,out="";
+    var img=await loadImg(url),max=1280,q=.82,out="";   // 1280px 約 200KB：紀錄表列印看不出差別，上傳快一倍
     for(var i=0;i<10;i++){
       var s=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight)),c=document.createElement("canvas");
       c.width=Math.round(img.naturalWidth*s);c.height=Math.round(img.naturalHeight*s);
       c.getContext("2d").drawImage(img,0,0,c.width,c.height);
-      out=c.toDataURL("image/jpeg",q);if(out.length<450000)return out;
+      out=c.toDataURL("image/jpeg",q);if(out.length<300000)return out;
       if(q>.56)q-=.08;else max=Math.round(max*.82);
     }
     return out;
@@ -368,7 +370,7 @@ async function resumePending(){
 }
 
 function pump(){
-  while(S.active<2&&S.queue.length){var job=S.queue.shift();S.active++;job().catch(function(){}).then(function(){S.active--;pump();schedule()})}
+  while(S.active<3&&S.queue.length){var job=S.queue.shift();S.active++;job().catch(function(){}).then(function(){S.active--;pump();schedule()})}
   schedule();
 }
 async function addFiles(files){
@@ -437,7 +439,7 @@ function fixItems(m){
 }
 function fixSlot(it,key,label){
   var k=it.id+":"+key,src=F.local[k]||thumb(it[key],800);
-  var st=F.busy[k]?'<span class="st">上傳中…</span>':F.fail[k]?'<span class="st fail">上傳失敗<br><button class="btn" data-act="fretry" data-k="'+esc(k)+'">重試</button></span>':"";
+  var st=F.busy[k]?'<span class="st">上傳中…</span>':F.fail[k]?'<span class="st fail">上傳失敗<span><button class="btn" data-act="fretry" data-k="'+esc(k)+'">重試</button> <button class="btn danger" data-act="fdrop" data-k="'+esc(k)+'">放棄</button></span></span>':"";
   var btns='<div class="fbtns"><label class="cam">📷 '+(it[key]?"重拍":"拍照")+'<input type="file" accept="image/*" capture="environment" data-fslot="'+key+'" data-id="'+esc(it.id)+'"></label>'+
     '<label>🖼 從相簿選<input type="file" accept="image/*" data-fslot="'+key+'" data-id="'+esc(it.id)+'"></label></div>';
   return (src?'<div class="fphoto"><img src="'+esc(src)+'" alt="'+label+'" referrerpolicy="no-referrer">'+st+'</div>':'')+btns;
@@ -500,6 +502,7 @@ app.addEventListener("click",async function(e){
   else if(a==="ffilter"){F.filter=t.dataset.v;render()}
   else if(a==="fitem"){F.id=id;render();scrollTo(0,0)}
   else if(a==="fback"){F.id=null;render();scrollTo(0,0)}
+  else if(a==="fdrop"){var fk=t.dataset.k,fr=F.fail[fk];if(fr){delete F.fail[fk];delete F.local[fk];idbDel(fr.id);render();toast("已放棄這張照片")}}
   else if(a==="fretry"){var rec=F.fail[t.dataset.k];if(rec){delete F.fail[t.dataset.k];S.queue.push(sendFix.bind(null,rec));pump()}}
   else if(a==="fdone"){var it=fitem(id);if(it){var ok=await fixUpdate(it,{done:!it.done});if(ok&&it.done){toast("已標記完成");F.id=null;render();scrollTo(0,0)}}}
 });
@@ -519,7 +522,7 @@ async function edOpen(o){
   var box=document.createElement("div");box.className="ed";box.setAttribute("role","dialog");box.setAttribute("aria-label","照片標註");
   document.body.appendChild(box);document.body.style.overflow="hidden";
   ED={d:d,src:src,onSave:o.onSave||null,okLabel:o.okLabel||"完成",box:box,shapes:[],drag:null,base:null,W:0,H:0,rotated:false,
-      tool:lsGet("ed_tool")||"rect",color:lsGet("ed_color")||COLORS[0][0],w:Number(lsGet("ed_w")||2)};
+      tool:lsGet("ed_tool")||"rect",color:lsGet("ed_color")||COLORS[0][0],w:Number(lsGet("ed_w")||2),a:Number(lsGet("ed_a")||1)};
   edRender(true);
   try{
     if(!src){var r=await post({action:"m_photoData",id:d.id},[30000,45000]);src="data:image/jpeg;base64,"+r.data;S.local[d.photo]=src}
@@ -537,6 +540,7 @@ function edRender(loading){
       seg("tool",[["rect","▭ 方框","方框"],["circle","◯ 圓圈","圓圈"],["arrow","➜ 箭頭","箭頭"]])+
       seg("color",COLORS.map(function(c){return [c[0],'<span class="sw" style="background:'+c[0]+'"></span>'+c[1],c[1]]}))+
       seg("w",[[1,'<span class="lw" style="height:2px"></span>細',"細"],[2,'<span class="lw" style="height:5px"></span>中',"中"],[3,'<span class="lw" style="height:9px"></span>粗',"粗"]])+
+      seg("a",[[1,'<span class="sw" style="background:'+ED.color+'"></span>100%',"不透明"],[.75,'<span class="sw" style="background:'+ED.color+';opacity:.75"></span>75%',"透明度 75%"],[.5,'<span class="sw" style="background:'+ED.color+';opacity:.5"></span>50%',"透明度 50%"],[.3,'<span class="sw" style="background:'+ED.color+';opacity:.3"></span>30%',"透明度 30%"]])+
     '</div>';
   var cv=b.querySelector("#edc");
   cv.addEventListener("pointerdown",edDown);cv.addEventListener("pointermove",edMove);cv.addEventListener("pointerup",edUp);cv.addEventListener("pointercancel",edUp);
@@ -548,7 +552,12 @@ function edDraw(){
   ED.shapes.concat(ED.drag?[ED.drag]:[]).forEach(function(s){edShape(x,s)});
 }
 function edLw(w){var u=Math.max(ED.W,ED.H)/300;return u*(w===1?2:w===3?7:4)}
-function edShape(x,s){
+function edShape(x0,s){
+  var al=s.a==null?1:s.a,x=x0;
+  if(al<1){   // 半透明：先畫在暫存圖層（重複使用同一張，拖曳時不卡）
+    if(!ED.tmp||ED.tmp.width!==ED.W||ED.tmp.height!==ED.H){ED.tmp=document.createElement("canvas");ED.tmp.width=ED.W;ED.tmp.height=ED.H}
+    x=ED.tmp.getContext("2d");x.clearRect(0,0,ED.W,ED.H);
+  }
   var lw=edLw(s.w);x.save();x.strokeStyle=s.color;x.fillStyle=s.color;x.lineWidth=lw;x.lineCap="round";x.lineJoin="round";
   x.shadowColor="rgba(0,0,0,.45)";x.shadowBlur=lw*.8;   // 黃色標在亮處也看得清楚
   var x1=s.x1,y1=s.y1,x2=s.x2,y2=s.y2;
@@ -562,9 +571,10 @@ function edShape(x,s){
     x.lineTo(x2-Math.cos(a)*hl-Math.sin(a)*hw,y2-Math.sin(a)*hl+Math.cos(a)*hw);x.closePath();x.fill();
   }
   x.restore();
+  if(al<1){x0.save();x0.globalAlpha=al;x0.drawImage(x.canvas,0,0);x0.restore()}
 }
 function edPt(e){var cv=e.target,r=cv.getBoundingClientRect();return{x:(e.clientX-r.left)*ED.W/r.width,y:(e.clientY-r.top)*ED.H/r.height}}
-function edDown(e){if(!ED||!ED.base)return;e.preventDefault();try{e.target.setPointerCapture(e.pointerId)}catch(err){}var p=edPt(e);ED.drag={tool:ED.tool,color:ED.color,w:ED.w,x1:p.x,y1:p.y,x2:p.x,y2:p.y}}
+function edDown(e){if(!ED||!ED.base)return;e.preventDefault();try{e.target.setPointerCapture(e.pointerId)}catch(err){}var p=edPt(e);ED.drag={tool:ED.tool,color:ED.color,w:ED.w,a:ED.a,x1:p.x,y1:p.y,x2:p.x,y2:p.y}}
 function edMove(e){if(!ED||!ED.drag)return;var p=edPt(e);ED.drag.x2=p.x;ED.drag.y2=p.y;edDraw()}
 function edUp(){
   if(!ED||!ED.drag)return;var s=ED.drag;ED.drag=null;
@@ -582,7 +592,7 @@ function edSave(){
   if(ED.onSave&&!changed){var cb0=ED.onSave,src0=ED.src;closeEditor();cb0(src0);return}   // 沒標註也照樣上傳
   if(!changed){closeEditor();return}
   var cv=ED.box.querySelector("#edc"),q=.86,out=cv.toDataURL("image/jpeg",q);
-  while(out.length>450000&&q>.5){q-=.08;out=cv.toDataURL("image/jpeg",q)}
+  while(out.length>300000&&q>.5){q-=.08;out=cv.toDataURL("image/jpeg",q)}
   if(ED.onSave){var cb=ED.onSave;closeEditor();cb(out);return}
   closeEditor();
   if(d._pending){             // 還沒上傳完：直接換掉要上傳的照片
@@ -600,7 +610,7 @@ async function sendEdit(d,data){
 document.addEventListener("click",function(e){
   if(!ED)return;var t=e.target.closest("button");if(!t||!ED.box.contains(t))return;
   var g=t.parentNode.dataset&&t.parentNode.dataset.g;
-  if(g){var v=g==="w"?Number(t.dataset.v):t.dataset.v;ED[g]=v;lsSet("ed_"+g,v);edRender();return}
+  if(g){var v=(g==="w"||g==="a")?Number(t.dataset.v):t.dataset.v;ED[g]=v;lsSet("ed_"+g,v);edRender();return}
   var a=t.dataset.ed;
   if(a==="cancel"){var cb=ED.onSave;closeEditor();if(cb)cb(null)}
   else if(a==="undo"){ED.shapes.pop();edRender()}
@@ -614,6 +624,12 @@ app.addEventListener("click",async function(e){
   if(a==="open"){S.mid=id;lsSet("mid",id);render();scrollTo(0,0)}
   else if(a==="list"){S.mid=null;lsSet("mid","");S.confirmDel=null;render();scrollTo(0,0)}
   else if(a==="retry"){var d=S.mine.find(function(x){return x.id===id});if(d){S.queue.push(send.bind(null,d));pump()}}
+  else if(a==="drop"){
+    var dp=S.mine.find(function(x){return x.id===id});if(!dp||!dp._fail)return;
+    S.mine=S.mine.filter(function(x){return x.id!==id});idbDel(id);render();toast("已刪除");
+    post({action:"m_delete",id:id}).catch(function(){});
+  }
+  else if(a==="drop-edit"){var dx=S.mine.find(function(x){return x.id===id});if(dx){dx._editFail=null;dx._localEdit=null;render();toast("已放棄這次標註")}}
   else if(a==="edit"){var de=S.mine.find(function(x){return x.id===id});if(de)openEditor(de)}
   else if(a==="retry-edit"){var dr=S.mine.find(function(x){return x.id===id});if(dr&&dr._editFail){var dd=dr._editFail;dr._editFail=null;S.queue.push(sendEdit.bind(null,dr,dd));pump()}}
   else if(a==="del"){S.confirmDel=id;render()}

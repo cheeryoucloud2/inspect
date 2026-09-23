@@ -188,6 +188,12 @@ h2{font-size:17px;margin:0}
 .seg button[aria-pressed="true"]{background:#fff;color:#111;border-color:#fff;font-weight:700}
 .sw{width:20px;height:20px;border-radius:50%;border:2px solid #fff;display:inline-block}
 .lw{display:inline-block;width:28px;border-radius:4px;background:currentColor}
+.ed-info{display:flex;align-items:center;gap:10px;padding:0 12px 6px;flex-wrap:wrap;font-size:14px;color:#cfd6d2}
+.ed-info .t{flex:1 1 200px;min-width:0}
+.ed-info .t b{color:#fff}
+.ed-info .cnt{font-family:var(--mono);color:#fff}
+.ed button.sel{background:#E8A900;border-color:#E8A900;color:#1C2630;font-weight:700}
+.ed button.nav{font-size:18px;padding:6px 14px}
 .ed .busy{position:absolute;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.6);font-size:15px}
 .lightbox{position:fixed;inset:0;background:rgba(10,14,17,.9);z-index:50;display:grid;place-items:center;padding:24px;cursor:zoom-out}
 .lightbox img{max-width:100%;max-height:100%;object-fit:contain;border-radius:4px}
@@ -200,7 +206,10 @@ h2{font-size:17px;margin:0}
 <style>
 /* 正式版追加 */
 .pending{position:absolute;inset:0;display:grid;place-items:center;background:rgba(20,26,30,.45);color:#fff;font-size:13px;font-weight:500}
-.pending.fail{background:rgba(160,40,20,.7)}
+.pending.fail{background:rgba(160,40,20,.78);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px}
+.pending .acts{display:flex;gap:8px}
+.pending .btn{color:var(--ink);background:#fff;border-color:#fff}   /* 紅底上的白色按鈕，字要看得到 */
+.pending .btn.danger{color:#fff;background:transparent;border-color:#fff}
 .slowtip{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 58px);transform:translateX(-50%);background:var(--wip-soft);color:var(--wip);border:1px solid var(--wip);padding:5px 14px;border-radius:999px;font-size:13px;z-index:40;max-width:calc(100% - 32px)}
 .gate{max-width:380px;margin:12vh auto 0;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:22px;display:flex;flex-direction:column;gap:12px}
 .meta-edit{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;margin-top:12px;display:grid;grid-template-columns:150px 1fr 2fr;gap:10px;align-items:end}
@@ -447,7 +456,7 @@ function shootPanel(m){
 }
 function phBox(d,extra){
   var inner=d._pending?'<img src="'+esc(d._local)+'" alt="">':d._localEdit?'<img src="'+esc(d._localEdit)+'" alt="">':imgTag(d.photo,d.desc);
-  var over=d._editing?'<span class="pending">更新標註中…</span>':d._editFail?'<span class="pending fail">標註上傳失敗　<button class="btn sm" data-act="retry-edit" data-id="'+esc(d.id)+'">重試</button></span>':d._pending?(d._fail?'<span class="pending fail">上傳失敗　<button class="btn sm" data-act="retry" data-id="'+esc(d.id)+'">重試</button></span>':'<span class="pending">上傳中…</span>'):"";
+  var over=d._editing?'<span class="pending">更新標註中…</span>':d._editFail?'<span class="pending fail">標註上傳失敗<span class="acts"><button class="btn sm" data-act="retry-edit" data-id="'+esc(d.id)+'">重試</button><button class="btn sm danger" data-act="drop-edit" data-id="'+esc(d.id)+'">放棄標註</button></span></span>':d._pending?(d._fail?'<span class="pending fail">上傳失敗<span class="acts"><button class="btn sm" data-act="retry" data-id="'+esc(d.id)+'">重試</button><button class="btn sm danger" data-act="drop" data-id="'+esc(d.id)+'">刪除</button></span></span>':'<span class="pending">上傳中…</span>'):"";
   return '<button class="ph" data-act="zoom" data-id="'+esc(d.id)+'" aria-label="放大照片">'+inner+(extra||"")+'<span class="by">'+esc(d.by||"未署名")+'</span></button>'+over;
 }
 function shootCard(d){
@@ -530,7 +539,7 @@ async function saveMeeting(m){
 
 /* 上傳佇列：同時 2 張，其餘排隊 */
 function pump(){
-  while(S.active<2&&S.queue.length){
+  while(S.active<3&&S.queue.length){
     var job=S.queue.shift();S.active++;
     job().catch(function(){}).then(function(){S.active--;pump();schedule();if(!S.active&&!S.queue.length)saveCache()});
   }
@@ -538,11 +547,11 @@ function pump(){
 }
 async function uploadMany(files){
   if(!files.length)return;
-  if(!S.me){toast("先在右上角填入你的名字，照片才知道是誰拍的");document.getElementById("me")&&document.getElementById("me").focus()}
+  if(!S.me)toast("右上角填入你的名字，照片才知道是誰拍的");   // 不要自動把游標移過去：有欄位在輸入時畫面會暫停更新，上傳進度會看不到
   var loc=(document.getElementById("cur-loc")||{}).value;loc=(loc||S.lastLoc||"").trim();S.lastLoc=loc;
   var mid=S.mid,seq=Date.now();
   for(var i=0;i<files.length;i++){
-    var data;try{data=await compress(files[i],1600,450000)}catch(e){toast("有一張照片讀不出來，已略過");continue}
+    var data;try{data=await compress(files[i],1280,300000)}catch(e){toast("有一張照片讀不出來，已略過");continue}
     var d={id:uid(),mid:mid,seq:seq+i,location:loc,desc:"",by:S.me,photo:"",selected:false,done:false,_pending:true,_local:data};
     S.defects.push(d);S.queue.push(sendDefect.bind(null,d));
   }
@@ -559,7 +568,7 @@ async function sendDefect(d){
   }catch(e){d._fail=true;toast("照片上傳失敗："+e.message)}
 }
 async function uploadSlot(id,key,file){
-  var data;try{data=await compress(file,1600,450000)}catch(e){toast("照片讀不出來");return}
+  var data;try{data=await compress(file,1280,300000)}catch(e){toast("照片讀不出來");return}
   S.local.set(id+":"+key,data);
   S.queue.push(async function(){
     try{var r=await post({action:"defectPhoto",id:id,slot:key,photo:data,by:byName()},{tmos:[40000,60000,90000]});
@@ -581,8 +590,16 @@ app.addEventListener("click",async function(e){
   else if(a==="edit-meta"){S.editMeta=!S.editMeta;render()}
   else if(a==="tab"){S.tab=t.dataset.tab;S.confirmDel=null;render()}
   else if(a==="filter"){S.filter=t.dataset.f;render()}
+  else if(a==="drop"){   // 上傳失敗的照片：從畫面移除；萬一其實已經傳到後端，也一併刪掉
+    var dp=S.defects.find(function(x){return x.id===id});if(!dp||!dp._fail)return;
+    S.defects=S.defects.filter(function(x){return x.id!==id});render();toast("已刪除");
+    post({action:"defectDelete",id:id,by:byName()},{tmos:[20000]}).catch(function(){});
+  }
+  else if(a==="drop-edit"){var dx=S.defects.find(function(x){return x.id===id});if(dx){dx._editFail=null;dx._localEdit=null;render();toast("已放棄這次標註")}}
   else if(a==="edit"){var de=S.defects.find(function(x){return x.id===id});if(de&&!de._pending)openEditor(de)}
   else if(a==="retry-edit"){e.stopPropagation();var dr=S.defects.find(function(x){return x.id===id});if(dr&&dr._editFail){var dd=dr._editFail;dr._editFail=null;S.queue.push(sendEdit.bind(null,dr,dd));pump()}}
+  else if(a==="zoom"&&(S.tab==="shoot"||S.tab==="pick")){if(e.target.closest("[data-act=retry],[data-act=retry-edit]"))return;var dz=S.defects.find(function(x){return x.id===id});if(dz&&!dz._pending){openEditor(dz);return}
+    if(dz){S.lightbox=dz._local;render()}}
   else if(a==="zoom"){if(e.target.closest("[data-act=retry-edit]"))return;if(e.target.closest("[data-act=retry]"))return;var d=S.defects.find(function(x){return x.id===id});if(d){S.lightbox=d._pending?d._local:photoSrc(d.photo,1600);render()}}
   else if(a==="zoomf"){if(e.target.closest("label"))return;if(t.dataset.f){S.lightbox=photoSrc(t.dataset.f,1600);render()}}
   else if(a==="closebox"){S.lightbox=null;render()}
@@ -662,28 +679,65 @@ async function photoData(fid){
   if(!r.data[fid])throw new Error("讀不到照片檔");
   var src="data:image/jpeg;base64,"+r.data[fid];S.local.set(fid,src);return src;
 }
-async function openEditor(d){
+/** 目前分頁看得到的照片（上一張／下一張的順序） */
+function edListIds(){
+  if(!S.mid)return [];
+  var ds=defectsOf(S.mid).filter(function(x){return !x._pending});
+  if(S.tab==="shoot"&&S.filter==="mine")ds=ds.filter(function(x){return x.by&&x.by===S.me});
+  return ds.map(function(x){return x.id});
+}
+function openEditor(d){
   var box=document.createElement("div");box.className="ed";box.setAttribute("role","dialog");box.setAttribute("aria-label","照片標註");
   document.body.appendChild(box);document.body.style.overflow="hidden";
-  ED={d:d,box:box,shapes:[],drag:null,base:null,W:0,H:0,rotated:false,
-      tool:lsGet("ed_tool")||"rect",color:lsGet("ed_color")||COLORS[0][0],w:Number(lsGet("ed_w")||2)};
-  edRender(true);
+  ED={d:null,box:box,ids:edListIds(),shapes:[],drag:null,base:null,W:0,H:0,rotated:false,seq:0,
+      tool:lsGet("ed_tool")||"rect",color:lsGet("ed_color")||COLORS[0][0],w:Number(lsGet("ed_w")||2),a:Number(lsGet("ed_a")||1)};
+  edLoad(d);
+}
+async function edLoad(d){
+  var my=++ED.seq;   // 快速連按下一張時，只顯示最後一張
+  ED.d=d;ED.shapes=[];ED.drag=null;ED.base=null;ED.rotated=false;ED.warned=false;edRender(true);
   try{
     var src=d._localEdit||await photoData(d.photo);
     var img=await loadImg(src),c=document.createElement("canvas");c.width=img.naturalWidth;c.height=img.naturalHeight;c.getContext("2d").drawImage(img,0,0);
-    if(!ED)return;ED.base=c;ED.W=c.width;ED.H=c.height;edRender();
-  }catch(e){toast("讀取照片失敗："+e.message);closeEditor()}
+    if(!ED||ED.seq!==my)return;ED.base=c;ED.W=c.width;ED.H=c.height;edRender();
+  }catch(e){if(ED&&ED.seq===my){toast("讀取照片失敗："+e.message);edRender()}}
+}
+/** 有畫標註或旋轉就排隊上傳（不關閉畫面） */
+function edCommit(){
+  if(!ED||!ED.base||(!ED.shapes.length&&!ED.rotated))return false;
+  var d=ED.d,cv=ED.box.querySelector("#edc"),q=.86,out=cv.toDataURL("image/jpeg",q);
+  while(out.length>300000&&q>.5){q-=.08;out=cv.toDataURL("image/jpeg",q)}
+  d._localEdit=out;S.queue.push(sendEdit.bind(null,d,out));pump();
+  ED.shapes=[];ED.rotated=false;
+  return true;
+}
+function edGo(step){
+  var i=ED.ids.indexOf(ED.d.id),j=i+step;
+  if(i<0||j<0||j>=ED.ids.length)return;
+  var nd=S.defects.find(function(x){return x.id===ED.ids[j]});if(!nd)return;
+  edCommit();edLoad(nd);
+}
+async function edToggleSel(){
+  var d=S.defects.find(function(x){return x.id===ED.d.id})||ED.d;await upd(d.id,{selected:!d.selected});
+  if(ED&&ED.d.id===d.id){edRender(!ED.base);toast(d.selected?"已列入改善":"已取消列入改善")}
 }
 function closeEditor(){if(ED){ED.box.remove();ED=null;document.body.style.overflow=""}}
 function edRender(loading){
   var b=ED.box,seg=function(g,list){return '<div class="seg" data-g="'+g+'">'+list.map(function(o){return '<button data-v="'+o[0]+'" aria-pressed="'+(String(ED[g])===String(o[0]))+'" aria-label="'+o[2]+'">'+o[1]+'</button>'}).join("")+'</div>'};
-  b.innerHTML='<div class="ed-top"><button data-ed="cancel">取消</button><span class="sp"></span>'+
+  var cur=S.defects.find(function(x){return x.id===ED.d.id});if(cur)ED.d=cur;   // 背景重新讀取後換成最新的資料
+  var d=ED.d,i=ED.ids.indexOf(d.id),n=ED.ids.length,no=d.selected?selectedOf(d.mid).indexOf(d)+1:0;
+  b.innerHTML='<div class="ed-top"><button data-ed="cancel" title="Esc">關閉</button>'+
+    '<button class="nav" data-ed="prev" title="上一張（←）"'+(i>0?'':' disabled')+'>‹</button><span class="ed-info" style="padding:0"><span class="cnt">'+(i+1)+' / '+n+'</span></span>'+
+    '<button class="nav" data-ed="next" title="下一張（→）"'+(i>=0&&i<n-1?'':' disabled')+'>›</button><span class="sp"></span>'+
     '<button data-ed="rot">⟳ 旋轉</button><button data-ed="undo"'+(ED.shapes.length?'':' disabled')+'>↶ 復原</button><button class="ok" data-ed="save">完成</button></div>'+
+    '<div class="ed-info"><span class="t">'+esc(d.location||"（未填位置）")+'　<b>'+esc(d.desc||"（未填缺失說明）")+'</b>　<span style="opacity:.7">'+esc(d.by||"")+'</span></span>'+
+    '<button data-ed="sel" class="'+(d.selected?"sel":"")+'">'+(d.selected?"✓ 已列入改善"+(no?"（"+pad2(no)+"）":""):"☐ 標記為需改善")+'</button></div>'+
     '<div class="ed-stage"><canvas id="edc"></canvas>'+(loading?'<div class="busy">讀取照片中…</div>':'')+'</div>'+
     '<div class="ed-tools">'+
       seg("tool",[["rect","▭ 方框","方框"],["circle","◯ 圓圈","圓圈"],["arrow","➜ 箭頭","箭頭"]])+
       seg("color",COLORS.map(function(c){return [c[0],'<span class="sw" style="background:'+c[0]+'"></span>'+c[1],c[1]]}))+
       seg("w",[[1,'<span class="lw" style="height:2px"></span>細',"細"],[2,'<span class="lw" style="height:5px"></span>中',"中"],[3,'<span class="lw" style="height:9px"></span>粗',"粗"]])+
+      seg("a",[[1,'<span class="sw" style="background:'+ED.color+'"></span>100%',"不透明"],[.75,'<span class="sw" style="background:'+ED.color+';opacity:.75"></span>75%',"透明度 75%"],[.5,'<span class="sw" style="background:'+ED.color+';opacity:.5"></span>50%',"透明度 50%"],[.3,'<span class="sw" style="background:'+ED.color+';opacity:.3"></span>30%',"透明度 30%"]])+
     '</div>';
   var cv=b.querySelector("#edc");
   cv.addEventListener("pointerdown",edDown);cv.addEventListener("pointermove",edMove);cv.addEventListener("pointerup",edUp);cv.addEventListener("pointercancel",edUp);
@@ -695,7 +749,12 @@ function edDraw(){
   ED.shapes.concat(ED.drag?[ED.drag]:[]).forEach(function(s){edShape(x,s)});
 }
 function edLw(w){var u=Math.max(ED.W,ED.H)/300;return u*(w===1?2:w===3?7:4)}
-function edShape(x,s){
+function edShape(x0,s){
+  var al=s.a==null?1:s.a,x=x0;
+  if(al<1){   // 半透明：先畫在暫存圖層（重複使用同一張，拖曳時不卡）
+    if(!ED.tmp||ED.tmp.width!==ED.W||ED.tmp.height!==ED.H){ED.tmp=document.createElement("canvas");ED.tmp.width=ED.W;ED.tmp.height=ED.H}
+    x=ED.tmp.getContext("2d");x.clearRect(0,0,ED.W,ED.H);
+  }
   var lw=edLw(s.w);x.save();x.strokeStyle=s.color;x.fillStyle=s.color;x.lineWidth=lw;x.lineCap="round";x.lineJoin="round";
   x.shadowColor="rgba(0,0,0,.45)";x.shadowBlur=lw*.8;
   var x1=s.x1,y1=s.y1,x2=s.x2,y2=s.y2;
@@ -709,9 +768,10 @@ function edShape(x,s){
     x.lineTo(x2-Math.cos(a)*hl-Math.sin(a)*hw,y2-Math.sin(a)*hl+Math.cos(a)*hw);x.closePath();x.fill();
   }
   x.restore();
+  if(al<1){x0.save();x0.globalAlpha=al;x0.drawImage(x.canvas,0,0);x0.restore()}
 }
 function edPt(e){var cv=e.target,r=cv.getBoundingClientRect();return{x:(e.clientX-r.left)*ED.W/r.width,y:(e.clientY-r.top)*ED.H/r.height}}
-function edDown(e){if(!ED||!ED.base)return;e.preventDefault();try{e.target.setPointerCapture(e.pointerId)}catch(err){}var p=edPt(e);ED.drag={tool:ED.tool,color:ED.color,w:ED.w,x1:p.x,y1:p.y,x2:p.x,y2:p.y}}
+function edDown(e){if(!ED||!ED.base)return;e.preventDefault();try{e.target.setPointerCapture(e.pointerId)}catch(err){}var p=edPt(e);ED.drag={tool:ED.tool,color:ED.color,w:ED.w,a:ED.a,x1:p.x,y1:p.y,x2:p.x,y2:p.y}}
 function edMove(e){if(!ED||!ED.drag)return;var p=edPt(e);ED.drag.x2=p.x;ED.drag.y2=p.y;edDraw()}
 function edUp(){
   if(!ED||!ED.drag)return;var s=ED.drag;ED.drag=null;
@@ -724,13 +784,7 @@ function edRotate(){
   var H=o.height;ED.shapes.forEach(function(s){var a=[H-s.y1,s.x1],b=[H-s.y2,s.x2];s.x1=a[0];s.y1=a[1];s.x2=b[0];s.y2=b[1]});
   ED.base=c;ED.W=c.width;ED.H=c.height;ED.rotated=true;edRender();
 }
-function edSave(){
-  var d=ED.d;if(!ED.shapes.length&&!ED.rotated){closeEditor();return}
-  var cv=ED.box.querySelector("#edc"),q=.86,out=cv.toDataURL("image/jpeg",q);
-  while(out.length>450000&&q>.5){q-=.08;out=cv.toDataURL("image/jpeg",q)}
-  closeEditor();
-  d._localEdit=out;S.queue.push(sendEdit.bind(null,d,out));pump();
-}
+function edSave(){edCommit();closeEditor()}
 /** 標註後的照片取代「改善前照片」（舊檔移到雲端垃圾桶） */
 async function sendEdit(d,data){
   d._editing=true;d._editFail=null;schedule();
@@ -742,14 +796,25 @@ async function sendEdit(d,data){
 document.addEventListener("click",function(e){
   if(!ED)return;var t=e.target.closest("button");if(!t||!ED.box.contains(t))return;
   var g=t.parentNode.dataset&&t.parentNode.dataset.g;
-  if(g){var v=g==="w"?Number(t.dataset.v):t.dataset.v;ED[g]=v;lsSet("ed_"+g,v);edRender();return}
+  if(g){var v=(g==="w"||g==="a")?Number(t.dataset.v):t.dataset.v;ED[g]=v;lsSet("ed_"+g,v);edRender();return}
   var a=t.dataset.ed;
-  if(a==="cancel")closeEditor();
+  if(a==="cancel"){
+    if((ED.shapes.length||ED.rotated)&&!ED.warned){ED.warned=true;toast("這張還有標註沒儲存，再按一次「關閉」會放棄；或按「完成」儲存");return}
+    closeEditor();
+  }
   else if(a==="undo"){ED.shapes.pop();edRender()}
   else if(a==="rot"){if(ED.base)edRotate()}
-  else if(a==="save"){if(ED.base)edSave()}
+  else if(a==="save"){edSave()}
+  else if(a==="prev")edGo(-1);
+  else if(a==="next")edGo(1);
+  else if(a==="sel")edToggleSel();
 });
-document.addEventListener("keydown",function(e){if(ED&&e.key==="Escape")closeEditor()});
+document.addEventListener("keydown",function(e){
+  if(!ED)return;
+  if(e.key==="Escape")closeEditor();
+  else if(e.key==="ArrowLeft"){e.preventDefault();edGo(-1)}
+  else if(e.key==="ArrowRight"){e.preventDefault();edGo(1)}
+});
 
 /* ---------- Excel ---------- */
 function download(blob,filename){var a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=filename;document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},4000)}
