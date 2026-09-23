@@ -108,11 +108,44 @@ h1{font-size:21px;margin:4px 0 2px;line-height:1.3}
 .bind .confirm{background:var(--accent-soft);border:1px solid var(--accent);border-radius:8px;padding:12px;font-size:15px}
 .bind .row{display:flex;gap:10px}
 .bind .row .btn{flex:1;padding:12px;font-size:16px}
+/* 模式切換、改善登錄 */
+.modes{display:grid;grid-template-columns:1fr 1fr;gap:0;margin:-16px -16px 16px;border-bottom:1px solid var(--line-strong);background:var(--surface)}
+.modes button{background:none;border:0;border-bottom:3px solid transparent;padding:12px 8px 10px;font-size:15px;font-weight:500;color:var(--ink-2);cursor:pointer}
+.modes button[aria-pressed="true"]{color:var(--ink);border-bottom-color:var(--accent);font-weight:700}
+.upbar{top:calc(52px + env(safe-area-inset-top,0px))}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.chip{border:1px solid var(--line-strong);background:var(--surface);border-radius:999px;padding:4px 12px;font-size:14px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--ground);border-color:var(--ink)}
+.fitem{display:grid;grid-template-columns:auto 76px 1fr;gap:10px;align-items:center;width:100%;text-align:left;background:var(--surface);border:1px solid var(--line);border-left:5px solid #A86A00;border-radius:12px;padding:10px;margin-top:10px;cursor:pointer}
+.fitem.done{border-left-color:var(--ok)}
+.fitem .no{font-family:var(--mono);font-weight:600;font-size:18px}
+.fitem .tb{width:76px;height:76px;border-radius:8px;overflow:hidden;background:var(--sunken)}
+.fitem .tb img{width:100%;height:100%;object-fit:cover;display:block}
+.fitem .tx{min-width:0;display:flex;flex-direction:column;gap:2px}
+.fitem .tx b{font-size:15px;line-height:1.35}
+.fitem .tx small{font-size:12.5px;color:var(--ink-2)}
+.pill{display:inline-block;font-size:12px;font-weight:500;padding:0 8px;border-radius:999px;background:#FBEBCB;color:#A86A00}
+.pill.ok{background:var(--ok-soft);color:var(--ok)}
+.fsec{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:12px;display:flex;flex-direction:column;gap:10px}
+.fsec h2{font-size:15px;margin:0;letter-spacing:.08em;color:var(--ink-2)}
+.fsec .field{margin-top:0}
+.fphoto{position:relative;border-radius:8px;overflow:hidden;background:var(--sunken);aspect-ratio:4/3}
+.fphoto img{width:100%;height:100%;object-fit:cover;display:block}
+.fphoto .st{position:absolute;inset:0;display:grid;place-items:center;background:rgba(20,26,30,.5);color:#fff;font-size:14px;text-align:center}
+.fphoto .st.fail{background:rgba(160,40,20,.75)}
+.fbtns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.fbtns label{display:flex;align-items:center;justify-content:center;gap:6px;border-radius:10px;padding:12px 6px;font-weight:700;cursor:pointer;border:1.5px solid var(--line-strong);background:var(--surface);font-size:15px}
+.fbtns label.cam{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.fbtns input{position:absolute;width:1px;height:1px;opacity:0}
+.missing{font-size:13px;color:#A86A00}
+.donebar{display:flex;flex-direction:column;gap:8px;margin-top:16px}
+.donebar .btn{padding:14px;font-size:17px;font-weight:700}
+.btn.okb{background:var(--ok);border-color:var(--ok);color:#fff}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--ground);padding:10px 16px;border-radius:10px;font-size:14px;z-index:30;max-width:calc(100% - 32px);text-align:center}
 </style>
 </head>
 <body>
-<header class="bar"><i aria-hidden="true"></i><b>巡查拍照上傳</b><span class="who" id="who"></span></header>
+<header class="bar"><i aria-hidden="true"></i><b id="title">巡查拍照上傳</b><span class="who" id="who"></span></header>
 <main class="wrap" id="app"><div class="msg">LINE 登入中…</div></main>
 
 <script>
@@ -123,7 +156,9 @@ var GAS_URL = "https://script.google.com/macros/s/AKfycbyJ5IWOv6_6MPf2mQfB0BZntI
 var LIFF_ID = "2011018188-CN7RGIY1";   // LINE Developers → 打卡系統的 LINE Login 頻道 → LIFF 新增一個，Endpoint 指到本頁
 
 var LS="insp_m_";
-var S={sess:null,name:"",meetings:[],mine:[],mid:lsGet("mid")||null,queue:[],active:0,local:{},confirmDel:null,dirty:false};
+var S={sess:null,name:"",meetings:[],mine:[],mid:lsGet("mid")||null,queue:[],active:0,local:{},confirmDel:null,dirty:false,mode:"shoot"};
+/* 改善登錄：meetings/items 由 m_fixList 載入；local＝剛選的照片預覽；busy/fail 以「項目ID:欄位」為鍵 */
+var F={loaded:false,loading:false,meetings:[],items:[],mid:lsGet("fmid")||null,id:null,filter:"todo",local:{},busy:{},fail:{}};
 var app=document.getElementById("app");
 
 function lsGet(k){try{return localStorage.getItem(LS+k)}catch(e){return null}}
@@ -169,6 +204,9 @@ function boot(){
   if(/請貼上/.test(LIFF_ID)){fatal("尚未設定 LIFF ID，請聯絡管理員。");return}
   liff.init({liffId:LIFF_ID}).then(function(){
     if(!liff.isLoggedIn()){liff.login({redirectUri:location.href});return}
+    // 入口 https://liff.line.me/LIFF_ID?view=fix → 改善登錄
+    var q=location.search+" "+decodeURIComponent(new URLSearchParams(location.search).get("liff.state")||"");
+    S.mode=/view=fix/.test(q)?"fix":"shoot";
     var saved=null;try{saved=JSON.parse(lsGet("sess")||"null")}catch(e){}
     // 5 小時內開過就沿用 session（後端保留 6 小時），開頁更快；過期會自動重新登入
     if(saved&&saved.sess&&Date.now()-saved.at<5*3600e3){
@@ -176,7 +214,7 @@ function boot(){
       return post({action:"m_meetings"}).then(function(r){S.name=r.name;S.meetings=r.meetings;S.mine=r.mine});
     }
     return login();
-  }).then(function(){if(S.sess){pickDefault();render();resumePending()}})
+  }).then(function(){if(S.sess){pickDefault();render();resumePending();if(S.mode==="fix")loadFix()}})
   .catch(function(e){
     var o=e&&e.o;
     if(o&&o.err==="not_bound")bindView(o.lineName,o.candidates||[]);
@@ -216,7 +254,7 @@ app.addEventListener("click",async function(e){
       var r=await post({action:"m_bind",idToken:liff.getIDToken(),name:BIND.pick});
       S.sess=r.sess;S.name=r.name;S.meetings=r.meetings;S.mine=r.mine;
       lsSet("sess",JSON.stringify({sess:r.sess,name:r.name,at:Date.now()}));
-      toast("綁定完成："+r.name);pickDefault();render();resumePending();
+      toast("綁定完成："+r.name);pickDefault();render();resumePending();if(S.mode==="fix")loadFix();
     }catch(err){
       BIND.busy=false;BIND.confirm=false;var o=err&&err.o;
       if(o&&o.candidates){BIND.list=o.candidates;BIND.pick=""}
@@ -231,17 +269,20 @@ function fatal(msg,lineName){
 /* ---------- 畫面 ---------- */
 function schedule(){
   var a=document.activeElement;
-  if(a&&app.contains(a)&&(a.tagName==="TEXTAREA"||(a.tagName==="INPUT"&&a.type==="text"))){S.dirty=true;return}
+  if(a&&app.contains(a)&&(a.tagName==="TEXTAREA"||(a.tagName==="INPUT"&&a.type!=="file"))){S.dirty=true;return}
   render();
 }
 app.addEventListener("focusout",function(){setTimeout(function(){if(S.dirty){S.dirty=false;render()}},0)});
 function render(){
   document.getElementById("who").textContent=S.name?S.name:"";
+  document.getElementById("title").textContent=S.mode==="fix"?"改善登錄":"巡查拍照上傳";
+  var modes='<nav class="modes"><button data-act="mode" data-v="shoot" aria-pressed="'+(S.mode==="shoot")+'">📷 巡查拍照</button><button data-act="mode" data-v="fix" aria-pressed="'+(S.mode==="fix")+'">🛠 改善登錄</button></nav>';
+  if(S.mode==="fix"){app.innerHTML=modes+upBar()+fixView();return}
   var m=meeting();
-  app.innerHTML=upBar()+(m?meetingView(m):listView());
+  app.innerHTML=modes+upBar()+(m?meetingView(m):listView());
 }
 function upBar(){
-  var p=S.mine.filter(function(d){return d._pending||d._busy}),f=p.filter(function(d){return d._fail}).length,n=p.length-f;
+  var p=S.mine.filter(function(d){return d._pending||d._busy}),f=p.filter(function(d){return d._fail}).length+Object.keys(F.fail).length,n=p.length-p.filter(function(d){return d._fail}).length+Object.keys(F.busy).length;
   if(n)return '<div class="upbar" role="status">⏳ 上傳中 '+n+' 張，請先不要關閉畫面（萬一關掉，下次打開會自動續傳）</div>';
   if(f)return '<div class="upbar fail" role="status">有 '+f+' 張上傳失敗，請按照片上的「重試」</div>';
   return "";
@@ -317,6 +358,7 @@ async function resumePending(){
   var have={};S.mine.forEach(function(d){have[d.id]=d});
   var n=0;
   rows.forEach(function(r){
+    if(r.kind==="fix"){F.local[r.defId+":"+r.slot]=r.data;S.queue.push(sendFix.bind(null,r));n++;return}
     if(have[r.id]&&!have[r.id]._pending){idbDel(r.id);return}   // 上次關掉前其實已經傳到了
     if(have[r.id])return;
     var d={id:r.id,mid:r.mid,seq:r.seq,location:r.location,desc:r.desc||"",photo:"",_pending:true,_local:r.data};
@@ -354,14 +396,129 @@ async function send(d){
   if(!S.mine.some(function(x){return x._pending}))toast("✓ 全部上傳完成");
 }
 
+
+/* ================= 改善登錄：選會議 → 選列管項目 → 上傳改善中／改善後、填資訊 ================= */
+function fitem(id){return F.items.find(function(x){return x.id===id})}
+function fmeeting(){var id=F.mid;return F.meetings.find(function(m){return m.id===id})}
+function fitemsOf(mid){return F.items.filter(function(x){return x.mid===mid})}   // 後端已依會議勾選順序排好
+function fmissing(it){var r=[];if(!it.midPhoto)r.push("改善中照片");if(!it.actualDate)r.push("實際改善日期");if(!it.method)r.push("改善作法");if(!it.afterPhoto)r.push("改善後照片");if(!it.prevent)r.push("矯正預防措施");return r}
+function thumb(fid,w){return fid?(S.local[fid]||"https://drive.google.com/thumbnail?id="+encodeURIComponent(fid)+"&sz=w"+(w||300)):""}
+async function loadFix(){
+  if(F.loading)return;F.loading=true;if(!F.loaded)render();
+  try{var r=await post({action:"m_fixList"});F.meetings=r.meetings;F.items=r.items;F.loaded=true;if(F.mid&&!fmeeting())F.mid=null;if(F.id&&!fitem(F.id))F.id=null}
+  catch(e){toast("讀取改善項目失敗："+e.message)}
+  F.loading=false;render();
+}
+function fixView(){
+  if(!F.loaded)return '<div class="msg">讀取改善項目中…</div>';
+  var it=F.id&&fitem(F.id);if(it)return fixDetail(it);
+  var m=fmeeting();if(m)return fixItems(m);
+  if(!F.meetings.length)return '<h1>改善登錄</h1><div class="msg">目前沒有需要改善的項目。<span class="sub">工務會議勾選「列入改善」的項目會出現在這裡。</span><button class="btn" data-act="freload">重新整理</button></div>';
+  return '<h1>改善登錄</h1><div class="sub">'+esc(S.name)+'，選擇要登錄改善的工務會議</div><div class="mlist">'+
+    F.meetings.map(function(m){
+      return '<button class="mbtn" data-act="fopen" data-id="'+esc(m.id)+'"><span class="d">'+esc(roc(m.date))+'</span>'+
+        '<span class="s">'+esc(m.site)+'</span><span class="p">'+esc(m.project)+'</span>'+
+        '<span class="n">已完成<b>'+m.done+' / '+m.sel+'</b>項</span></button>';
+    }).join("")+'</div>';
+}
+function fixItems(m){
+  var all=fitemsOf(m.id),todo=all.filter(function(x){return !x.done}),mine=all.filter(function(x){return x.owner&&x.owner===S.name});
+  var list=F.filter==="todo"?todo:F.filter==="mine"?mine:all;
+  var chip=function(k,t,n){return '<button class="chip" data-act="ffilter" data-v="'+k+'" aria-pressed="'+(F.filter===k)+'">'+t+' '+n+'</button>'};
+  return '<button class="back" data-act="flist">← 換一場會議</button><h1>'+esc(m.site)+'</h1><div class="sub"><span class="mono">'+esc(roc(m.date))+'</span>　已完成 '+(all.length-todo.length)+' / '+all.length+' 項</div>'+
+    '<div class="chips">'+chip("todo","未完成",todo.length)+chip("mine","我負責的",mine.length)+chip("all","全部",all.length)+'</div>'+
+    (list.length?list.map(function(x){
+      var n=all.indexOf(x)+1;
+      return '<button class="fitem'+(x.done?' done':'')+'" data-act="fitem" data-id="'+esc(x.id)+'"><span class="no">'+String(n).padStart(2,"0")+'</span>'+
+        '<span class="tb">'+(x.photo?'<img src="'+esc(thumb(x.photo))+'" alt="" referrerpolicy="no-referrer">':'')+'</span>'+
+        '<span class="tx"><b>'+esc(x.desc||"（未填缺失說明）")+'</b><small>'+esc(x.location||"")+(x.owner?'　負責：'+esc(x.owner):'')+(x.planDate?'　預計 '+esc(roc(x.planDate)):'')+'</small>'+
+        '<span><span class="pill'+(x.done?' ok':'')+'">'+(x.done?'已完成':'改善中')+'</span> <small>'+(x.midPhoto?'改善中✓ ':'')+(x.afterPhoto?'改善後✓':'')+'</small></span></span></button>';
+    }).join(""):'<div class="empty">'+(F.filter==="todo"?"這場的項目都完成了 👍":F.filter==="mine"?"沒有指定你負責的項目。":"沒有項目。")+'</div>');
+}
+function fixSlot(it,key,label){
+  var k=it.id+":"+key,src=F.local[k]||thumb(it[key],800);
+  var st=F.busy[k]?'<span class="st">上傳中…</span>':F.fail[k]?'<span class="st fail">上傳失敗<br><button class="btn" data-act="fretry" data-k="'+esc(k)+'">重試</button></span>':"";
+  var btns='<div class="fbtns"><label class="cam">📷 '+(it[key]?"重拍":"拍照")+'<input type="file" accept="image/*" capture="environment" data-fslot="'+key+'" data-id="'+esc(it.id)+'"></label>'+
+    '<label>🖼 從相簿選<input type="file" accept="image/*" data-fslot="'+key+'" data-id="'+esc(it.id)+'"></label></div>';
+  return (src?'<div class="fphoto"><img src="'+esc(src)+'" alt="'+label+'" referrerpolicy="no-referrer">'+st+'</div>':'')+btns;
+}
+function fixDetail(it){
+  var all=fitemsOf(it.mid),n=all.indexOf(it)+1,miss=fmissing(it),id=esc(it.id);
+  return '<button class="back" data-act="fback">← 回項目列表</button>'+
+    '<h1><span class="mono">'+String(n).padStart(2,"0")+'</span>　'+esc(it.desc||"（未填缺失說明）")+'</h1>'+
+    '<div class="sub">'+esc(it.location||"")+(it.owner?'　負責：'+esc(it.owner):'')+(it.category?'　'+esc(it.category):'')+(it.planDate?'　預計改善 '+esc(roc(it.planDate)):'')+'</div>'+
+    '<div class="fsec"><h2>改善前</h2><div class="fphoto">'+(it.photo?'<img src="'+esc(thumb(it.photo,800))+'" alt="改善前" referrerpolicy="no-referrer">':'')+'</div></div>'+
+    '<div class="fsec"><h2>改善中</h2>'+fixSlot(it,"midPhoto","改善中")+
+      '<label class="field"><span>實際改善日期</span><input type="date" data-ff="actualDate" data-id="'+id+'" value="'+esc(it.actualDate)+'"></label>'+
+      '<label class="field"><span>改善作法說明</span><textarea data-ff="method" data-id="'+id+'" rows="3" placeholder="例：01.施工架斜撐補強更換">'+esc(it.method)+'</textarea></label></div>'+
+    '<div class="fsec"><h2>改善後</h2>'+fixSlot(it,"afterPhoto","改善後")+
+      '<label class="field"><span>拍攝日期</span><input type="date" data-ff="afterDate" data-id="'+id+'" value="'+esc(it.afterDate)+'"></label>'+
+      '<label class="field"><span>矯正及預防措施說明</span><textarea data-ff="prevent" data-id="'+id+'" rows="3" placeholder="例：01.施工架斜撐損壞或偏斜，要求協力廠商更換修正">'+esc(it.prevent)+'</textarea></label></div>'+
+    '<div class="donebar">'+(!it.done&&miss.length?'<span class="missing">尚缺：'+miss.join("、")+'</span>':'')+
+      (it.done?'<button class="btn" data-act="fdone" data-id="'+id+'">✓ 已完成（點此改回改善中）</button>':'<button class="btn okb" data-act="fdone" data-id="'+id+'">標記改善完成</button>')+'</div>';
+}
+async function fixUpdate(it,patch){
+  Object.assign(it,patch);
+  var m=F.meetings.find(function(x){return x.id===it.mid});if(m)m.done=fitemsOf(m.id).filter(function(x){return x.done}).length;
+  schedule();
+  try{await post({action:"m_fixUpdate",id:it.id,patch:patch});return true}
+  catch(e){toast("儲存失敗："+e.message);loadFix();return false}
+}
+/* 選照片 → 先開標註畫面（可旋轉、圈起來，或直接按「上傳」）→ 排隊上傳 */
+async function fixPick(id,key,file){
+  var data;try{data=await compress(file)}catch(e){toast("照片讀不出來");return}
+  edOpen({src:data,okLabel:"上傳",onSave:function(out){if(out)queueFix({id:"fix:"+id+":"+key,kind:"fix",defId:id,slot:key,data:out})}});
+}
+function queueFix(rec){
+  var k=rec.defId+":"+rec.slot;F.local[k]=rec.data;delete F.fail[k];
+  idbDo("readwrite",function(st){return st.put(rec)});
+  S.queue.push(sendFix.bind(null,rec));pump();
+}
+async function sendFix(rec){
+  var k=rec.defId+":"+rec.slot;F.busy[k]=1;delete F.fail[k];schedule();
+  try{
+    var r=await post({action:"m_fixPhoto",id:rec.defId,slot:rec.slot,photo:rec.data},[40000,60000,90000]);
+    S.local[r.fileId]=rec.data;delete F.local[k];idbDel(rec.id);
+    var it=fitem(rec.defId);
+    if(it){
+      it[rec.slot]=r.fileId;
+      var p={};   // 上傳照片時順手帶入今天日期（沒填過才帶）
+      if(rec.slot==="midPhoto"&&!it.actualDate)p.actualDate=todayIso();
+      if(rec.slot==="afterPhoto"&&!it.afterDate)p.afterDate=todayIso();
+      if(Object.keys(p).length)await fixUpdate(it,p);
+    }
+    toast((rec.slot==="midPhoto"?"改善中":"改善後")+"照片已上傳");
+  }catch(e){F.fail[k]=rec;toast("照片上傳失敗："+e.message)}
+  delete F.busy[k];
+}
+app.addEventListener("click",async function(e){
+  var t=e.target.closest("[data-act]");if(!t)return;var a=t.dataset.act,id=t.dataset.id;
+  if(a==="mode"){S.mode=t.dataset.v;render();scrollTo(0,0);if(S.mode==="fix")loadFix();else post({action:"m_meetings"}).then(function(r){S.meetings=r.meetings;S.mine=S.mine.filter(function(d){return d._pending}).concat(r.mine);schedule()}).catch(function(){})}
+  else if(a==="freload")loadFix();
+  else if(a==="fopen"){F.mid=id;F.id=null;lsSet("fmid",id);render();scrollTo(0,0)}
+  else if(a==="flist"){F.mid=null;F.id=null;lsSet("fmid","");render();scrollTo(0,0);loadFix()}
+  else if(a==="ffilter"){F.filter=t.dataset.v;render()}
+  else if(a==="fitem"){F.id=id;render();scrollTo(0,0)}
+  else if(a==="fback"){F.id=null;render();scrollTo(0,0)}
+  else if(a==="fretry"){var rec=F.fail[t.dataset.k];if(rec){delete F.fail[t.dataset.k];S.queue.push(sendFix.bind(null,rec));pump()}}
+  else if(a==="fdone"){var it=fitem(id);if(it){var ok=await fixUpdate(it,{done:!it.done});if(ok&&it.done){toast("已標記完成");F.id=null;render();scrollTo(0,0)}}}
+});
+app.addEventListener("change",function(e){
+  var t=e.target;
+  if(t.dataset.fslot){var f=t.files[0];t.value="";if(f)fixPick(t.dataset.id,t.dataset.fslot,f);return}
+  if(t.dataset.ff&&t.dataset.id){var it=fitem(t.dataset.id),v=t.value.trim(),p={};if(!it||(it[t.dataset.ff]||"")===v)return;p[t.dataset.ff]=v;fixUpdate(it,p).then(function(ok){if(ok&&t.tagName==="TEXTAREA")toast("已儲存")})}
+});
+
 /* ---------- 標註編輯器：旋轉、方框／圓圈／箭頭、紅黃藍、細中粗 ---------- */
 var ED=null;
 var COLORS=[["#E53935","紅"],["#FDD835","黃"],["#1E88E5","藍"]];
-async function openEditor(d){
-  var src=d._localEdit||d._local||S.local[d.photo];
+function openEditor(d){return edOpen({d:d})}
+/** o.d：巡查照片（完成後換照片）；或 o.src + o.onSave(dataURL|null)：改善照片（完成＝上傳，取消＝不上傳） */
+async function edOpen(o){
+  var d=o.d,src=o.src||(d&&(d._localEdit||d._local||S.local[d.photo]));
   var box=document.createElement("div");box.className="ed";box.setAttribute("role","dialog");box.setAttribute("aria-label","照片標註");
   document.body.appendChild(box);document.body.style.overflow="hidden";
-  ED={d:d,box:box,shapes:[],drag:null,base:null,W:0,H:0,rotated:false,
+  ED={d:d,src:src,onSave:o.onSave||null,okLabel:o.okLabel||"完成",box:box,shapes:[],drag:null,base:null,W:0,H:0,rotated:false,
       tool:lsGet("ed_tool")||"rect",color:lsGet("ed_color")||COLORS[0][0],w:Number(lsGet("ed_w")||2)};
   edRender(true);
   try{
@@ -374,7 +531,7 @@ function closeEditor(){if(ED){ED.box.remove();ED=null;document.body.style.overfl
 function edRender(loading){
   var b=ED.box,seg=function(g,list){return '<div class="seg" data-g="'+g+'">'+list.map(function(o){return '<button data-v="'+o[0]+'" aria-pressed="'+(String(ED[g])===String(o[0]))+'" aria-label="'+o[2]+'">'+o[1]+'</button>'}).join("")+'</div>'};
   b.innerHTML='<div class="ed-top"><button data-ed="cancel">取消</button><span class="sp"></span>'+
-    '<button data-ed="rot">⟳ 旋轉</button><button data-ed="undo"'+(ED.shapes.length?'':' disabled')+'>↶ 復原</button><button class="ok" data-ed="save">完成</button></div>'+
+    '<button data-ed="rot">⟳ 旋轉</button><button data-ed="undo"'+(ED.shapes.length?'':' disabled')+'>↶ 復原</button><button class="ok" data-ed="save">'+esc(ED.okLabel)+'</button></div>'+
     '<div class="ed-stage"><canvas id="edc"></canvas>'+(loading?'<div class="busy">讀取照片中…</div>':'')+'</div>'+
     '<div class="ed-tools">'+
       seg("tool",[["rect","▭ 方框","方框"],["circle","◯ 圓圈","圓圈"],["arrow","➜ 箭頭","箭頭"]])+
@@ -421,9 +578,12 @@ function edRotate(){   // 順時針 90°，已畫的標註跟著轉
   ED.base=c;ED.W=c.width;ED.H=c.height;ED.rotated=true;edRender();
 }
 function edSave(){
-  var d=ED.d;if(!ED.shapes.length&&!ED.rotated){closeEditor();return}
+  var d=ED.d,changed=ED.shapes.length||ED.rotated;
+  if(ED.onSave&&!changed){var cb0=ED.onSave,src0=ED.src;closeEditor();cb0(src0);return}   // 沒標註也照樣上傳
+  if(!changed){closeEditor();return}
   var cv=ED.box.querySelector("#edc"),q=.86,out=cv.toDataURL("image/jpeg",q);
   while(out.length>450000&&q>.5){q-=.08;out=cv.toDataURL("image/jpeg",q)}
+  if(ED.onSave){var cb=ED.onSave;closeEditor();cb(out);return}
   closeEditor();
   if(d._pending){             // 還沒上傳完：直接換掉要上傳的照片
     if(d._sending)d._reup=out;
@@ -442,7 +602,7 @@ document.addEventListener("click",function(e){
   var g=t.parentNode.dataset&&t.parentNode.dataset.g;
   if(g){var v=g==="w"?Number(t.dataset.v):t.dataset.v;ED[g]=v;lsSet("ed_"+g,v);edRender();return}
   var a=t.dataset.ed;
-  if(a==="cancel")closeEditor();
+  if(a==="cancel"){var cb=ED.onSave;closeEditor();if(cb)cb(null)}
   else if(a==="undo"){ED.shapes.pop();edRender()}
   else if(a==="rot"){if(ED.base)edRotate()}
   else if(a==="save"){if(ED.base)edSave()}

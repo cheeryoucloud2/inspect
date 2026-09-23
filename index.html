@@ -173,6 +173,22 @@ h2{font-size:17px;margin:0}
 .signbox input{width:18px;height:18px;accent-color:var(--ok)}
 
 .confirm{display:flex;gap:6px;align-items:center;font-size:13px;color:var(--bad)}
+/* 標註編輯器 */
+.ed{position:fixed;inset:0;z-index:70;background:#111417;color:#fff;display:flex;flex-direction:column}
+.ed-top{display:flex;align-items:center;gap:8px;padding:calc(8px + env(safe-area-inset-top,0px)) 12px 8px}
+.ed-top .sp{flex:1}
+.ed button{font:inherit;color:#fff;background:#2A3137;border:1px solid #3A434B;border-radius:10px;padding:8px 14px;font-size:15px;cursor:pointer;white-space:nowrap}
+.ed button:disabled{opacity:.4;cursor:default}
+.ed button.ok{background:#E8A900;border-color:#E8A900;color:#1C2630;font-weight:700}
+.ed-stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:6px;position:relative}
+.ed-stage canvas{max-width:100%;max-height:100%;touch-action:none;display:block;box-shadow:0 0 0 1px #333;cursor:crosshair}
+.ed-tools{display:flex;flex-direction:column;gap:8px;padding:8px 12px calc(12px + env(safe-area-inset-bottom,0px));width:100%;max-width:760px;margin:0 auto}
+.seg{display:flex;gap:6px}
+.seg button{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;min-height:42px;padding:6px}
+.seg button[aria-pressed="true"]{background:#fff;color:#111;border-color:#fff;font-weight:700}
+.sw{width:20px;height:20px;border-radius:50%;border:2px solid #fff;display:inline-block}
+.lw{display:inline-block;width:28px;border-radius:4px;background:currentColor}
+.ed .busy{position:absolute;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.6);font-size:15px}
 .lightbox{position:fixed;inset:0;background:rgba(10,14,17,.9);z-index:50;display:grid;place-items:center;padding:24px;cursor:zoom-out}
 .lightbox img{max-width:100%;max-height:100%;object-fit:contain;border-radius:4px}
 .uploading{font-size:13px;color:var(--ink-2)}
@@ -277,7 +293,7 @@ function post(body,opt){
 /* ---------- 資料同步 ---------- */
 function saveCache(){
   try{localStorage.setItem(LS+"cache",JSON.stringify({ver:S.ver,meetings:S.meetings,people:S.people,cats:S.cats,sites:S.sites,
-    defects:S.defects.filter(function(d){return !d._pending}).map(function(d){var o=Object.assign({},d);delete o._fail;return o})}))}catch(e){}
+    defects:S.defects.filter(function(d){return !d._pending}).map(function(d){var o={};for(var k in d)if(k.charAt(0)!=="_")o[k]=d[k];return o})}))}catch(e){}
 }
 function loadCache(){
   try{var c=JSON.parse(localStorage.getItem(LS+"cache")||"null");if(c){S.meetings=c.meetings||[];S.defects=c.defects||[];S.people=c.people||[];S.cats=c.cats||[];S.sites=c.sites||[];S.ver=c.ver;S.loaded=true}}catch(e){}
@@ -428,16 +444,17 @@ function shootPanel(m){
   (ds.length?'<div class="grid">'+ds.map(shootCard).join("")+'</div>':'<div class="empty">'+(S.filter==="mine"&&!S.me?"先在右上角填入你的名字，才能篩選你拍的照片。":"還沒有照片。按上方「拍照或選擇照片」開始。")+'</div>');
 }
 function phBox(d,extra){
-  var inner=d._pending?'<img src="'+esc(d._local)+'" alt="">':imgTag(d.photo,d.desc);
-  var over=d._pending?(d._fail?'<span class="pending fail">上傳失敗　<button class="btn sm" data-act="retry" data-id="'+esc(d.id)+'">重試</button></span>':'<span class="pending">上傳中…</span>'):"";
+  var inner=d._pending?'<img src="'+esc(d._local)+'" alt="">':d._localEdit?'<img src="'+esc(d._localEdit)+'" alt="">':imgTag(d.photo,d.desc);
+  var over=d._editing?'<span class="pending">更新標註中…</span>':d._editFail?'<span class="pending fail">標註上傳失敗　<button class="btn sm" data-act="retry-edit" data-id="'+esc(d.id)+'">重試</button></span>':d._pending?(d._fail?'<span class="pending fail">上傳失敗　<button class="btn sm" data-act="retry" data-id="'+esc(d.id)+'">重試</button></span>':'<span class="pending">上傳中…</span>'):"";
   return '<button class="ph" data-act="zoom" data-id="'+esc(d.id)+'" aria-label="放大照片">'+inner+(extra||"")+'<span class="by">'+esc(d.by||"未署名")+'</span></button>'+over;
 }
 function shootCard(d){
   return '<article class="card '+(d.selected?"sel":"")+'" style="position:relative"><div style="position:relative">'+phBox(d)+'</div><div class="body">'+
     '<label class="field"><span>位置</span><input data-f="location" data-id="'+esc(d.id)+'" list="dl-loc" value="'+esc(d.location)+'"></label>'+
     '<label class="field"><span>缺失說明</span><textarea data-f="desc" data-id="'+esc(d.id)+'" rows="2" placeholder="例：斜撐圓管未固定、已損壞">'+esc(d.desc)+'</textarea></label>'+
-    '<div class="foot"><span>'+(d.selected?"已列入改善":"")+'</span>'+(d._pending?"":delCtl(d))+'</div></div></article>';
+    '<div class="foot">'+(d._pending?'<span></span>':editBtn(d))+'<span>'+(d.selected?"已列入改善　":"")+(d._pending?"":delCtl(d))+'</span></div></div></article>';
 }
+function editBtn(d){return '<button class="btn sm" data-act="edit" data-id="'+esc(d.id)+'"'+(d._editing?" disabled":"")+'>✏️ 標註／旋轉</button>'}
 function delCtl(d){
   if(S.confirmDel===d.id)return '<span class="confirm">刪除這張？<button class="btn sm danger" data-act="del-yes" data-id="'+esc(d.id)+'">刪除</button><button class="btn sm ghost" data-act="del-no">取消</button></span>';
   return '<button class="link" data-act="del" data-id="'+esc(d.id)+'">刪除</button>';
@@ -456,6 +473,7 @@ function pickCard(d,m){
     (d.selected?'<label class="field"><span>缺失類別</span><select data-f="category" data-id="'+esc(d.id)+'"><option value="">—</option>'+cats.map(function(c){return '<option '+(d.category===c?"selected":"")+'>'+esc(c)+'</option>'}).join("")+'</select></label>'+
       '<div class="row2"><label class="field"><span>改善負責人員</span><input data-f="owner" data-id="'+esc(d.id)+'" list="dl-people" value="'+esc(d.owner)+'"></label>'+
       '<label class="field"><span>預計改善日期</span><input type="date" data-f="planDate" data-id="'+esc(d.id)+'" value="'+esc(d.planDate)+'"></label></div>':"")+
+    '<div class="foot">'+editBtn(d)+'<span></span></div>'+
     '</div><button class="selbtn" data-act="sel" data-id="'+esc(d.id)+'" aria-pressed="'+!!d.selected+'"><span class="box" aria-hidden="true">'+(d.selected?"✓":"")+'</span>'+(d.selected?"列入改善":"應改善？點此勾選")+'</button></article>';
 }
 function fixPanel(m){
@@ -561,7 +579,9 @@ app.addEventListener("click",async function(e){
   else if(a==="edit-meta"){S.editMeta=!S.editMeta;render()}
   else if(a==="tab"){S.tab=t.dataset.tab;S.confirmDel=null;render()}
   else if(a==="filter"){S.filter=t.dataset.f;render()}
-  else if(a==="zoom"){if(e.target.closest("[data-act=retry]"))return;var d=S.defects.find(function(x){return x.id===id});if(d){S.lightbox=d._pending?d._local:photoSrc(d.photo,1600);render()}}
+  else if(a==="edit"){var de=S.defects.find(function(x){return x.id===id});if(de&&!de._pending)openEditor(de)}
+  else if(a==="retry-edit"){e.stopPropagation();var dr=S.defects.find(function(x){return x.id===id});if(dr&&dr._editFail){var dd=dr._editFail;dr._editFail=null;S.queue.push(sendEdit.bind(null,dr,dd));pump()}}
+  else if(a==="zoom"){if(e.target.closest("[data-act=retry-edit]"))return;if(e.target.closest("[data-act=retry]"))return;var d=S.defects.find(function(x){return x.id===id});if(d){S.lightbox=d._pending?d._local:photoSrc(d.photo,1600);render()}}
   else if(a==="zoomf"){if(e.target.closest("label"))return;if(t.dataset.f){S.lightbox=photoSrc(t.dataset.f,1600);render()}}
   else if(a==="closebox"){S.lightbox=null;render()}
   else if(a==="retry"){e.stopPropagation();var d2=S.defects.find(function(x){return x.id===id});if(d2){S.queue.push(sendDefect.bind(null,d2));pump()}}
@@ -628,6 +648,106 @@ app.addEventListener("dragover",function(e){var d=e.target.closest("#drop");if(d
 app.addEventListener("dragleave",function(e){var d=e.target.closest("#drop");if(d)d.classList.remove("over")});
 app.addEventListener("drop",function(e){var d=e.target.closest("#drop");if(!d)return;e.preventDefault();d.classList.remove("over");uploadMany([].slice.call(e.dataTransfer.files).filter(function(f){return f.type.indexOf("image/")===0}))});
 window.addEventListener("beforeunload",function(e){if(S.active||S.queue.length){e.preventDefault();e.returnValue="照片還在上傳"}});
+
+
+/* ---------- 標註編輯器（同手機上傳頁）：旋轉、方框／圓圈／箭頭、紅黃藍、細中粗 ---------- */
+var ED=null;
+var COLORS=[["#E53935","紅"],["#FDD835","黃"],["#1E88E5","藍"]];
+/** 取改善前照片原檔（雲端縮圖不能拿來畫，要經後端讀檔） */
+async function photoData(fid){
+  var v=S.local.get(fid);if(typeof v==="string"&&v.indexOf("data:")===0)return v;
+  var r=await post({action:"photos",ids:[fid]},{tmos:[30000,45000]});
+  if(!r.data[fid])throw new Error("讀不到照片檔");
+  var src="data:image/jpeg;base64,"+r.data[fid];S.local.set(fid,src);return src;
+}
+async function openEditor(d){
+  var box=document.createElement("div");box.className="ed";box.setAttribute("role","dialog");box.setAttribute("aria-label","照片標註");
+  document.body.appendChild(box);document.body.style.overflow="hidden";
+  ED={d:d,box:box,shapes:[],drag:null,base:null,W:0,H:0,rotated:false,
+      tool:lsGet("ed_tool")||"rect",color:lsGet("ed_color")||COLORS[0][0],w:Number(lsGet("ed_w")||2)};
+  edRender(true);
+  try{
+    var src=d._localEdit||await photoData(d.photo);
+    var img=await loadImg(src),c=document.createElement("canvas");c.width=img.naturalWidth;c.height=img.naturalHeight;c.getContext("2d").drawImage(img,0,0);
+    if(!ED)return;ED.base=c;ED.W=c.width;ED.H=c.height;edRender();
+  }catch(e){toast("讀取照片失敗："+e.message);closeEditor()}
+}
+function closeEditor(){if(ED){ED.box.remove();ED=null;document.body.style.overflow=""}}
+function edRender(loading){
+  var b=ED.box,seg=function(g,list){return '<div class="seg" data-g="'+g+'">'+list.map(function(o){return '<button data-v="'+o[0]+'" aria-pressed="'+(String(ED[g])===String(o[0]))+'" aria-label="'+o[2]+'">'+o[1]+'</button>'}).join("")+'</div>'};
+  b.innerHTML='<div class="ed-top"><button data-ed="cancel">取消</button><span class="sp"></span>'+
+    '<button data-ed="rot">⟳ 旋轉</button><button data-ed="undo"'+(ED.shapes.length?'':' disabled')+'>↶ 復原</button><button class="ok" data-ed="save">完成</button></div>'+
+    '<div class="ed-stage"><canvas id="edc"></canvas>'+(loading?'<div class="busy">讀取照片中…</div>':'')+'</div>'+
+    '<div class="ed-tools">'+
+      seg("tool",[["rect","▭ 方框","方框"],["circle","◯ 圓圈","圓圈"],["arrow","➜ 箭頭","箭頭"]])+
+      seg("color",COLORS.map(function(c){return [c[0],'<span class="sw" style="background:'+c[0]+'"></span>'+c[1],c[1]]}))+
+      seg("w",[[1,'<span class="lw" style="height:2px"></span>細',"細"],[2,'<span class="lw" style="height:5px"></span>中',"中"],[3,'<span class="lw" style="height:9px"></span>粗',"粗"]])+
+    '</div>';
+  var cv=b.querySelector("#edc");
+  cv.addEventListener("pointerdown",edDown);cv.addEventListener("pointermove",edMove);cv.addEventListener("pointerup",edUp);cv.addEventListener("pointercancel",edUp);
+  edDraw();
+}
+function edDraw(){
+  if(!ED||!ED.base)return;var cv=ED.box.querySelector("#edc");cv.width=ED.W;cv.height=ED.H;
+  var x=cv.getContext("2d");x.drawImage(ED.base,0,0);
+  ED.shapes.concat(ED.drag?[ED.drag]:[]).forEach(function(s){edShape(x,s)});
+}
+function edLw(w){var u=Math.max(ED.W,ED.H)/300;return u*(w===1?2:w===3?7:4)}
+function edShape(x,s){
+  var lw=edLw(s.w);x.save();x.strokeStyle=s.color;x.fillStyle=s.color;x.lineWidth=lw;x.lineCap="round";x.lineJoin="round";
+  x.shadowColor="rgba(0,0,0,.45)";x.shadowBlur=lw*.8;
+  var x1=s.x1,y1=s.y1,x2=s.x2,y2=s.y2;
+  if(s.tool==="rect"){x.strokeRect(Math.min(x1,x2),Math.min(y1,y2),Math.abs(x2-x1),Math.abs(y2-y1))}
+  else if(s.tool==="circle"){x.beginPath();x.ellipse((x1+x2)/2,(y1+y2)/2,Math.abs(x2-x1)/2,Math.abs(y2-y1)/2,0,0,Math.PI*2);x.stroke()}
+  else{
+    var a=Math.atan2(y2-y1,x2-x1),hl=Math.max(lw*3.2,Math.max(ED.W,ED.H)/40),hw=hl*.6;
+    var bx=x2-Math.cos(a)*hl*.85,by=y2-Math.sin(a)*hl*.85;
+    x.beginPath();x.moveTo(x1,y1);x.lineTo(bx,by);x.stroke();
+    x.beginPath();x.moveTo(x2,y2);x.lineTo(x2-Math.cos(a)*hl+Math.sin(a)*hw,y2-Math.sin(a)*hl-Math.cos(a)*hw);
+    x.lineTo(x2-Math.cos(a)*hl-Math.sin(a)*hw,y2-Math.sin(a)*hl+Math.cos(a)*hw);x.closePath();x.fill();
+  }
+  x.restore();
+}
+function edPt(e){var cv=e.target,r=cv.getBoundingClientRect();return{x:(e.clientX-r.left)*ED.W/r.width,y:(e.clientY-r.top)*ED.H/r.height}}
+function edDown(e){if(!ED||!ED.base)return;e.preventDefault();try{e.target.setPointerCapture(e.pointerId)}catch(err){}var p=edPt(e);ED.drag={tool:ED.tool,color:ED.color,w:ED.w,x1:p.x,y1:p.y,x2:p.x,y2:p.y}}
+function edMove(e){if(!ED||!ED.drag)return;var p=edPt(e);ED.drag.x2=p.x;ED.drag.y2=p.y;edDraw()}
+function edUp(){
+  if(!ED||!ED.drag)return;var s=ED.drag;ED.drag=null;
+  if(Math.hypot(s.x2-s.x1,s.y2-s.y1)>Math.max(ED.W,ED.H)/60)ED.shapes.push(s);
+  edRender();
+}
+function edRotate(){
+  var o=ED.base,c=document.createElement("canvas");c.width=o.height;c.height=o.width;
+  var x=c.getContext("2d");x.translate(c.width,0);x.rotate(Math.PI/2);x.drawImage(o,0,0);
+  var H=o.height;ED.shapes.forEach(function(s){var a=[H-s.y1,s.x1],b=[H-s.y2,s.x2];s.x1=a[0];s.y1=a[1];s.x2=b[0];s.y2=b[1]});
+  ED.base=c;ED.W=c.width;ED.H=c.height;ED.rotated=true;edRender();
+}
+function edSave(){
+  var d=ED.d;if(!ED.shapes.length&&!ED.rotated){closeEditor();return}
+  var cv=ED.box.querySelector("#edc"),q=.86,out=cv.toDataURL("image/jpeg",q);
+  while(out.length>450000&&q>.5){q-=.08;out=cv.toDataURL("image/jpeg",q)}
+  closeEditor();
+  d._localEdit=out;S.queue.push(sendEdit.bind(null,d,out));pump();
+}
+/** 標註後的照片取代「改善前照片」（舊檔移到雲端垃圾桶） */
+async function sendEdit(d,data){
+  d._editing=true;d._editFail=null;schedule();
+  try{var r=await post({action:"defectPhoto",id:d.id,slot:"photo",photo:data,by:byName()},{tmos:[40000,60000,90000]});
+    S.local.set(r.fileId,data);d.photo=r.fileId;d._localEdit=null;saveCache();toast("標註已儲存")}
+  catch(e){d._editFail=data;toast("標註上傳失敗："+e.message)}
+  finally{d._editing=false}
+}
+document.addEventListener("click",function(e){
+  if(!ED)return;var t=e.target.closest("button");if(!t||!ED.box.contains(t))return;
+  var g=t.parentNode.dataset&&t.parentNode.dataset.g;
+  if(g){var v=g==="w"?Number(t.dataset.v):t.dataset.v;ED[g]=v;lsSet("ed_"+g,v);edRender();return}
+  var a=t.dataset.ed;
+  if(a==="cancel")closeEditor();
+  else if(a==="undo"){ED.shapes.pop();edRender()}
+  else if(a==="rot"){if(ED.base)edRotate()}
+  else if(a==="save"){if(ED.base)edSave()}
+});
+document.addEventListener("keydown",function(e){if(ED&&e.key==="Escape")closeEditor()});
 
 /* ---------- Excel ---------- */
 function download(blob,filename){var a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=filename;document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},4000)}
