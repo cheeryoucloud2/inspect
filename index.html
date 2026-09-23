@@ -230,6 +230,8 @@ h2{font-size:17px;margin:0}
 .upfolder #qr{grid-row:1/5;background:#fff;padding:8px;border-radius:6px;line-height:0}
 .upfolder .lnk{font-family:var(--mono);font-size:12.5px;word-break:break-all;color:var(--ink-2)}
 .upfolder .acts{display:flex;gap:8px;flex-wrap:wrap}
+.upfolder.mini{grid-template-columns:auto 1fr auto;align-items:center;padding:10px 14px}
+.upfolder.mini .lnk{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .upfolder ol{margin:0;padding-left:20px;font-size:13.5px;color:var(--ink-2)}
 @media (max-width:640px){.upfolder{grid-template-columns:1fr}.upfolder #qr{grid-row:auto;justify-self:start}}
 .saved{margin-top:12px;font-size:14px}
@@ -257,7 +259,7 @@ var S = {
   me: lsGet("me") || "", token: lsGet("token") || "", lastLoc: "",
   local: new Map(),      // fileId 或 暫存鍵 → 本機 dataURL（剛上傳的照片先用本機的，不等雲端縮圖）
   queue: [], active: 0, inflight: 0, dirty:false,
-  confirmDel:null, lightbox:null, showNew:false, editMeta:false, upf:null, needLogin:!lsGet("token"), loggingIn:false, saved:null, exporting:false,
+  confirmDel:null, lightbox:null, showNew:false, editMeta:false, upf:null, upfBusy:{}, needLogin:!lsGet("token"), loggingIn:false, saved:null, exporting:false,
 };
 var app = document.getElementById("app");
 
@@ -452,26 +454,31 @@ function meetingView(m){
   '<div class="mhead"><div><div class="eyebrow">工務會議 <span class="mono">'+esc(roc(m.date))+'</span>　<button class="link" data-act="edit-meta">編輯會議資料</button></div>'+
     '<h1 style="margin-top:2px">'+esc(m.site)+'　<span style="font-weight:500;font-size:17px;color:var(--ink-2)">'+esc(m.project)+'</span></h1>'+
     '<span class="pill '+s[0]+'">'+s[1]+'</span></div>'+
-    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="upf-open">📁 雲端上傳區</button><button class="btn primary" data-act="export" '+(st.sel&&!S.exporting?"":"disabled")+'>'+(S.exporting?"產生中…":"匯出缺失改善紀錄表 (Excel)")+'</button></div></div>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="upf-open">'+(m.upFolder?"📁 雲端上傳區 ✓":"📁 建立雲端上傳區")+'</button><button class="btn primary" data-act="export" '+(st.sel&&!S.exporting?"":"disabled")+'>'+(S.exporting?"產生中…":"匯出缺失改善紀錄表 (Excel)")+'</button></div></div>'+
   (S.editMeta?metaForm(m):"")+
-  (S.upf&&S.upf.mid===m.id?upFolderView():"")+
+  (S.upf&&S.upf.mid===m.id&&!m.upFolder?'<div class="upfolder"><span class="sub">建立雲端上傳區中…</span></div>':"")+
   (S.saved&&S.saved.mid===m.id?'<div class="saved">已下載，並存一份到雲端：<a href="'+esc(S.saved.folderUrl)+'" target="_blank" rel="noopener">開啟這場會議的雲端資料夾</a></div>':"")+
   '<nav class="tabs" role="tablist">'+tabs.map(function(t){return '<button class="tab" role="tab" aria-selected="'+(S.tab===t[0])+'" data-act="tab" data-tab="'+t[0]+'"><span class="step">'+t[1]+'</span>'+t[2]+'<span class="cnt">'+t[3]+'</span></button>'}).join("")+'</nav>'+
   '<section class="panel">'+(S.tab==="shoot"?shootPanel(m):S.tab==="pick"?pickPanel(m):fixPanel(m))+'</section>';
 }
-function upFolderView(){
-  var u=S.upf;
-  if(!u.url)return '<div class="upfolder"><span class="sub">建立雲端上傳區中…</span></div>';
+function upUrl(m){return m&&m.upFolder?"https://drive.google.com/drive/folders/"+m.upFolder:""}
+/** 雲端上傳區：有建立的會議，固定顯示在「巡查拍照」上方（可縮成一行，狀態記在這台裝置） */
+function upFolderView(m){
+  var url=upUrl(m);if(!url)return "";
+  var busy=S.upfBusy[m.id],mini=lsGet("upmini")==="1";
+  var acts='<div class="acts"><button class="btn sm" data-act="upf-copy">複製連結</button><a class="btn sm" href="'+esc(url)+'" target="_blank" rel="noopener">開啟資料夾</a>'+
+    '<button class="btn sm primary" data-act="upf-import"'+(busy?" disabled":"")+'>'+(busy?"匯入中…":"立即匯入")+'</button>'+
+    '<button class="btn sm ghost" data-act="upf-mini">'+(mini?"展開 QR Code":"縮小")+'</button></div>';
+  if(mini)return '<div class="upfolder mini"><b>📁 雲端上傳區</b><span class="lnk">'+esc(url)+'</span>'+acts+'</div>';
   return '<div class="upfolder"><div id="qr"></div>'+
-    '<div><b>雲端上傳區</b>　<span class="sub">用手機「Google 雲端硬碟」App 開這個連結直接丟照片，關掉 App 也會在背景傳完</span></div>'+
-    '<div class="lnk">'+esc(u.url)+'</div>'+
-    '<ol><li>掃 QR Code 或把連結傳到 LINE 群組</li><li>在雲端硬碟 App 按「＋ → 上傳」選照片（要登入 Google 帳號）</li><li>約 5 分鐘內自動出現在「巡查拍照」，拍照人員依〈Google帳號〉分頁對照成姓名</li></ol>'+
-    '<div class="acts"><button class="btn sm" data-act="upf-copy">複製連結</button><a class="btn sm" href="'+esc(u.url)+'" target="_blank" rel="noopener">開啟資料夾</a>'+
-    '<button class="btn sm primary" data-act="upf-import"'+(u.importing?" disabled":"")+'>'+(u.importing?"匯入中…":"立即匯入")+'</button><button class="btn sm ghost" data-act="upf-close">收起</button></div></div>';
+    '<div><b>📁 雲端上傳區</b>　<span class="sub">用手機「Google 雲端硬碟」App 開這個連結直接丟照片，關掉 App 也會在背景傳完</span></div>'+
+    '<div class="lnk">'+esc(url)+'</div>'+
+    '<ol><li>掃 QR Code 或把連結傳到 LINE 群組</li><li>在雲端硬碟 App 按「＋ → 上傳」選照片（要登入 Google 帳號）</li><li>約 5 分鐘內自動出現在下方，拍照人員依〈Google帳號〉分頁對照成姓名</li></ol>'+acts+'</div>';
 }
 function drawQR(){
-  var el=document.getElementById("qr");if(!el||!S.upf||!S.upf.url||!window.QRCode)return;
-  el.innerHTML="";new QRCode(el,{text:S.upf.url,width:132,height:132,correctLevel:QRCode.CorrectLevel.M});
+  var el=document.getElementById("qr"),m=S.mid&&meeting(S.mid),url=upUrl(m);if(!el||!url||!window.QRCode)return;
+  if(el.dataset.u===url&&el.firstChild)return;   // 已經畫過就不重畫
+  el.innerHTML="";el.dataset.u=url;new QRCode(el,{text:url,width:132,height:132,correctLevel:QRCode.CorrectLevel.M});
 }
 function metaForm(m){
   return '<form class="meta-edit" id="metaform"><label class="field"><span>會議日期</span><input type="date" id="mf-date" value="'+esc(m.date)+'" required></label>'+
@@ -487,7 +494,7 @@ function shootPanel(m){
   var cnt={};all.forEach(function(d){var k=d.by||"未署名";cnt[k]=(cnt[k]||0)+1});
   var who=Object.keys(cnt).sort(function(a,b){return (b===S.me)-(a===S.me)||cnt[b]-cnt[a]||a.localeCompare(b)});
   if(S.filter!=="all"&&!cnt[S.filter.slice(3)])S.filter="all";
-  return '<div class="drop" id="drop"><label class="btn primary" for="shoot-file">📷 拍照或選擇照片</label><input type="file" id="shoot-file" accept="image/*" multiple>'+
+  return upFolderView(m)+'<div class="drop" id="drop"'+(m.upFolder?' style="margin-top:12px"':'')+'><label class="btn primary" for="shoot-file">📷 拍照或選擇照片</label><input type="file" id="shoot-file" accept="image/*" multiple>'+
     '<label class="field"><span>目前位置（新照片會帶入）</span><input id="cur-loc" list="dl-loc" value="'+esc(S.lastLoc)+'" placeholder="例：IL棟 1F 廚房區"></label>'+
     '<span class="uploading">可一次選多張，照片會自動壓縮。</span></div>'+
   '<div class="panel-intro" style="margin-top:14px"><p>每個人把看到的缺失拍下來，補上位置與說明。會議報告時大家看同一個畫面，不用再翻 LINE 相簿。</p>'+
@@ -628,21 +635,23 @@ app.addEventListener("click",async function(e){
   var a=t.dataset.act,id=t.dataset.id;
   if(a==="logout"){logout();return}
   if(a==="upf-open"){
-    S.upf={mid:S.mid,url:null};render();
-    try{var ru=await post({action:"uploadFolder",mid:S.mid},{tmos:[30000,45000]});if(S.upf&&S.upf.mid===S.mid){S.upf.url=ru.url;render()}}
-    catch(err){S.upf=null;render();toast("建立雲端上傳區失敗："+err.message)}
-    return;
+    var mo=meeting(S.mid);if(!mo)return;
+    if(mo.upFolder){S.tab="shoot";lsSet("upmini","0");render();scrollTo(0,0);return}   // 已建立：跳到巡查拍照看
+    S.upf={mid:S.mid};render();
+    try{var ru=await post({action:"uploadFolder",mid:S.mid},{tmos:[30000,45000]});mo.upFolder=ru.id;saveCache();S.tab="shoot";toast("已建立雲端上傳區")}
+    catch(err){toast("建立雲端上傳區失敗："+err.message)}
+    S.upf=null;render();return;
   }
-  if(a==="upf-close"){S.upf=null;render();return}
-  if(a==="upf-copy"){var u=S.upf&&S.upf.url;if(!u)return;
+  if(a==="upf-mini"){lsSet("upmini",lsGet("upmini")==="1"?"0":"1");render();return}
+  if(a==="upf-copy"){var u=upUrl(meeting(S.mid));if(!u)return;
     try{await navigator.clipboard.writeText(u);toast("已複製連結")}catch(err){toast("請手動選取連結複製")}return}
   if(a==="upf-import"){
-    S.upf.importing=true;render();
+    var im=S.mid;S.upfBusy[im]=1;render();
     try{var ri=await post({action:"importNow",mid:S.mid},{tmos:[120000,180000]});
       toast(ri.added?"匯入 "+ri.added+" 張"+(ri.waiting?"，另有 "+ri.waiting+" 張雲端還在處理，稍後會自動匯入":""):(ri.waiting?"有 "+ri.waiting+" 張雲端還在處理，稍後再試":"沒有新照片"));
       if(ri.added)refresh()}
     catch(err){toast("匯入失敗："+err.message)}
-    if(S.upf)S.upf.importing=false;render();return;
+    delete S.upfBusy[im];render();return;
   }
   if(a==="home"){S.view="home";S.mid=null;S.editMeta=false;render();scrollTo(0,0)}
   else if(a==="open"){S.view="meeting";S.mid=id;S.tab=selectedOf(id).length?"fix":"shoot";S.filter="all";S.editMeta=false;render();scrollTo(0,0)}
