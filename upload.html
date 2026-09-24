@@ -196,32 +196,47 @@ function post(body,tmos){
 }
 
 /* ---------- LINE 登入 ---------- */
+var LIFF_READY=null;   // liff.init 的 promise：重新登入前要先等它完成
 function login(){
-  var tk=liff.getIDToken();
-  return post({action:"m_login",idToken:tk}).then(function(r){
-    S.sess=r.sess;S.name=r.name;S.meetings=r.meetings;S.mine=r.mine;
-    lsSet("sess",JSON.stringify({sess:r.sess,name:r.name,at:Date.now()}));
-    return r;
-  });
+  return LIFF_READY.then(function(){
+    return post({action:"m_login",idToken:liff.getIDToken()});
+  }).then(function(r){applyData(r);saveSess(r);return r});
 }
+function saveSess(r){S.sess=r.sess;S.name=r.name;lsSet("sess",JSON.stringify({sess:r.sess,name:r.name,exp:r.exp||0,at:Date.now()}))}
+/** 伺服器回來的會議／照片：保留還在上傳中的本機照片，並記下來讓下次一打開就能先顯示 */
+function applyData(r){
+  if(r.name)S.name=r.name;
+  S.meetings=r.meetings||[];
+  var pend=S.mine.filter(function(d){return d._pending}),ids={};(r.mine||[]).forEach(function(d){ids[d.id]=1});
+  S.mine=(r.mine||[]).concat(pend.filter(function(d){return !ids[d.id]}));
+  lsSet("last",JSON.stringify({name:S.name,meetings:S.meetings,mine:r.mine||[]}));
+}
+function modeFromUrl(){var q=location.search+" "+decodeURIComponent(new URLSearchParams(location.search).get("liff.state")||"");return /view=fix/.test(q)?"fix":"shoot"}
 function boot(){
   if(/請貼上/.test(LIFF_ID)){fatal("尚未設定 LIFF ID，請聯絡管理員。");return}
-  liff.init({liffId:LIFF_ID}).then(function(){
+  S.mode=modeFromUrl();
+  LIFF_READY=liff.init({liffId:LIFF_ID});
+  // 有沒過期的登入：先顯示上次的畫面，同時（不等 LINE 初始化）去抓最新資料 → 幾乎秒開
+  var saved=null;try{saved=JSON.parse(lsGet("sess")||"null")}catch(e){}
+  var ok=saved&&saved.sess&&(saved.exp?saved.exp>Date.now()+3600e3:Date.now()-saved.at<5*3600e3);
+  var fresh=null;
+  if(ok){
+    S.sess=saved.sess;S.name=saved.name;
+    var last=null;try{last=JSON.parse(lsGet("last")||"null")}catch(e){}
+    var lf=null;try{lf=JSON.parse(lsGet("lastfix")||"null")}catch(e){}
+    if(lf&&lf.name===saved.name){F.meetings=lf.meetings||[];F.items=lf.items||[];F.loaded=true}   // 改善登錄也先顯示上次的清單
+    if(last&&last.name===saved.name){S.meetings=last.meetings||[];S.mine=last.mine||[];pickDefault();render()}
+    fresh=post({action:"m_meetings"});
+  }
+  LIFF_READY.then(function(){
     if(!liff.isLoggedIn()){liff.login({redirectUri:location.href});return}
-    // 入口 https://liff.line.me/LIFF_ID?view=fix → 改善登錄
-    var q=location.search+" "+decodeURIComponent(new URLSearchParams(location.search).get("liff.state")||"");
-    S.mode=/view=fix/.test(q)?"fix":"shoot";
-    var saved=null;try{saved=JSON.parse(lsGet("sess")||"null")}catch(e){}
-    // 5 小時內開過就沿用 session（後端保留 6 小時），開頁更快；過期會自動重新登入
-    if(saved&&saved.sess&&Date.now()-saved.at<5*3600e3){
-      S.sess=saved.sess;S.name=saved.name;
-      return post({action:"m_meetings"}).then(function(r){S.name=r.name;S.meetings=r.meetings;S.mine=r.mine});
-    }
-    return login();
+    S.mode=modeFromUrl();   // 從 liff.line.me 進來時，網址參數在初始化後才會出現
+    return fresh?fresh.then(applyData):login();
   }).then(function(){if(S.sess){pickDefault();render();resumePending();if(S.mode==="fix")loadFix()}})
   .catch(function(e){
     var o=e&&e.o;
     if(o&&o.err==="not_bound")bindView(o.lineName,o.candidates||[]);
+    else if(S.meetings.length){toast("更新失敗："+(e&&e.message||e)+"（先顯示上次的資料）")}
     else fatal("登入失敗："+(e&&e.message||e));
   });
 }
@@ -256,8 +271,7 @@ app.addEventListener("click",async function(e){
     BIND.busy=true;bindView();
     try{
       var r=await post({action:"m_bind",idToken:liff.getIDToken(),name:BIND.pick});
-      S.sess=r.sess;S.name=r.name;S.meetings=r.meetings;S.mine=r.mine;
-      lsSet("sess",JSON.stringify({sess:r.sess,name:r.name,at:Date.now()}));
+      applyData(r);saveSess(r);
       toast("綁定完成："+r.name);pickDefault();render();resumePending();if(S.mode==="fix")loadFix();
     }catch(err){
       BIND.busy=false;BIND.confirm=false;var o=err&&err.o;
@@ -413,7 +427,7 @@ function fmissing(it){var r=[];if(!it.midPhoto)r.push("改善中照片");if(!it.
 function thumb(fid,w){return fid?(S.local[fid]||"https://lh3.googleusercontent.com/d/"+encodeURIComponent(fid)+"=w"+(w||300)):""}
 async function loadFix(){
   if(F.loading)return;F.loading=true;if(!F.loaded)render();
-  try{var r=await post({action:"m_fixList"});F.meetings=r.meetings;F.items=r.items;F.loaded=true;if(F.mid&&!fmeeting())F.mid=null;if(F.id&&!fitem(F.id))F.id=null}
+  try{var r=await post({action:"m_fixList"});F.meetings=r.meetings;F.items=r.items;F.loaded=true;lsSet("lastfix",JSON.stringify({name:S.name,meetings:r.meetings,items:r.items}));if(F.mid&&!fmeeting())F.mid=null;if(F.id&&!fitem(F.id))F.id=null}
   catch(e){toast("讀取改善項目失敗："+e.message)}
   F.loading=false;render();
 }
@@ -501,7 +515,7 @@ async function sendFix(rec){
 }
 app.addEventListener("click",async function(e){
   var t=e.target.closest("[data-act]");if(!t)return;var a=t.dataset.act,id=t.dataset.id;
-  if(a==="mode"){S.mode=t.dataset.v;render();scrollTo(0,0);if(S.mode==="fix")loadFix();else post({action:"m_meetings"}).then(function(r){S.meetings=r.meetings;S.mine=S.mine.filter(function(d){return d._pending}).concat(r.mine);schedule()}).catch(function(){})}
+  if(a==="mode"){S.mode=t.dataset.v;render();scrollTo(0,0);if(S.mode==="fix")loadFix();else post({action:"m_meetings"}).then(function(r){applyData(r);schedule()}).catch(function(){})}
   else if(a==="freload")loadFix();
   else if(a==="fopen"){F.mid=id;F.id=null;lsSet("fmid",id);render();scrollTo(0,0)}
   else if(a==="flist"){F.mid=null;F.id=null;lsSet("fmid","");render();scrollTo(0,0);loadFix()}
